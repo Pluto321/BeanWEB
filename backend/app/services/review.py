@@ -50,6 +50,14 @@ class ReviewService:
 
         if old_values:
             AuditService.log_change(db, "transaction", txn_id, "UPDATE", old_values, new_values, "User manual update")
+            # CONFIRMED 交易被编辑后必须重新确认
+            if txn.status == "CONFIRMED":
+                AuditService.log_change(
+                    db, "transaction", txn_id, "STATUS_CHANGE",
+                    {"status": "CONFIRMED"}, {"status": "REVIEW_REQUIRED"},
+                    "Confirmed transaction edited, reconfirmation required",
+                )
+                txn.status = "REVIEW_REQUIRED"
 
 
     @staticmethod

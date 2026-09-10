@@ -3,22 +3,37 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 import { Badge, Button, Card, ErrorState, LoadingState } from '../components/UIComponents';
 
+type SplitRow = { account: string; amount: string };
+
 const TransactionDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
   const [txn, setTxn] = useState<any>(null);
+  const [accounts, setAccounts] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [actionError, setActionError] = useState('');
   const [acting, setActing] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState<any>({});
+  // allocation 编辑状态：payment = 支付账户（Assets），expense = 分类账户（Expenses 等）
+  const [paymentRows, setPaymentRows] = useState<SplitRow[]>([]);
+  const [expenseRows, setExpenseRows] = useState<SplitRow[]>([]);
 
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    apiFetch<any>(`/api/transactions/${id}`)
-      .then(setTxn)
+    Promise.all([
+      apiFetch<any>(`/api/transactions/${id}`),
+      apiFetch<string[]>('/api/accounts'),
+    ])
+      .then(([t, accs]) => {
+        setTxn(t);
+        setAccounts(accs);
+        const all: SplitRow[] = (t.splits ?? []).map((s: any) => ({ account: s.account, amount: s.amount }));
+        setPaymentRows(all.filter(s => s.account.startsWith('Assets:')));
+        setExpenseRows(all.filter(s => !s.account.startsWith('Assets:')));
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, [id]);
@@ -67,17 +82,32 @@ const TransactionDetail = () => {
     }
   };
 
-  const saveSplit = async (splitId: number, field: 'account' | 'amount', value: string) => {
+  // 金额分配校验
+  const txnAmount = useMemo(() => Number(txn?.amount ?? 0), [txn]);
+  const paymentTotal = useMemo(() => paymentRows.reduce((s, r) => s + Number(r.amount || 0), 0), [paymentRows]);
+  const expenseTotal = useMemo(() => expenseRows.reduce((s, r) => s + Number(r.amount || 0), 0), [expenseRows]);
+  const paymentOk = paymentRows.length === 0 || Math.abs(paymentTotal - txnAmount) < 0.005;
+  const expenseOk = expenseRows.length === 0 || Math.abs(expenseTotal - txnAmount) < 0.005;
+  const allocationValid = paymentOk && expenseOk;
+
+  const saveSplits = async () => {
+    setActing(true);
     setActionError('');
     try {
-      await apiFetch(`/api/transactions/${id}/splits/${splitId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }) });
+      await apiFetch(`/api/transactions/${id}/splits`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ splits: expenseRows, payment_splits: paymentRows }),
+      });
       load();
     } catch (e: any) {
       setActionError(e.message);
+    } finally {
+      setActing(false);
     }
   };
 
-  // 前端预览 Beancount 分录：与后端 _render() 口径一致
+  // 前端预览 Beancount 分录：与后端 render_preview() 口径一致
   const beanPreview = useMemo(() => {
     if (!txn) return '';
     const lines: string[] = [];
@@ -86,40 +116,45 @@ const TransactionDetail = () => {
     lines.push(`  id: "${txn.id}"`);
     if (txn.raw_transaction_id) lines.push(`  raw_id: "${txn.raw_transaction_id}"`);
 
-    const splits: { account: string; amount: string }[] = (txn.splits ?? []).map((s: any) => ({
-      account: s.account,
-      amount: s.amount,
-    }));
-    if (splits.length === 0) return lines.join('\n');
+    const expense = expenseRows.map(r => ({ account: r.account, amount: Number(r.amount || 0) }));
+    const payment = paymentRows.map(r => ({ account: r.account, amount: Number(r.amount || 0) }));
+    if (expense.length === 0 && payment.length === 0) return lines.join('\n');
 
-    let total = splits.reduce((sum, s) => sum + Number(s.amount), 0);
     const isIncome = txn.direction === '收入';
-    let signed = splits.map(s => ({ ...s }));
-    if (total !== 0) {
-      if (isIncome) {
-        signed = signed.map(s => ({ ...s, amount: String(-Number(s.amount)) }));
-        total = signed.reduce((sum, s) => sum + Number(s.amount), 0);
-      }
-      signed.unshift({ account: 'Assets:BeanWEB', amount: String(-total) });
+    const signed: { account: string; amount: number }[] = [];
+    if (isIncome) {
+      expense.forEach(s => signed.push({ account: s.account, amount: -s.amount }));
+      payment.forEach(s => signed.push({ account: s.account, amount: s.amount }));
+    } else {
+      expense.forEach(s => signed.push({ account: s.account, amount: s.amount }));
+      payment.forEach(s => signed.push({ account: s.account, amount: -s.amount }));
     }
     for (const s of signed) {
-      const v = Number(s.amount);
-      const sign = v < 0 ? '' : ' ';
-      lines.push(`  ${s.account.padEnd(32)} ${sign}${v.toFixed(2).padStart(10)} ${txn.currency}`);
+      lines.push(`  ${s.account.padEnd(32)} ${s.amount.toFixed(2).padStart(12)} ${txn.currency}`);
     }
     return lines.join('\n');
-  }, [txn]);
+  }, [txn, expenseRows, paymentRows]);
+
+  const accountOptions = (current: string) => (
+    <>
+      <option value="">— 选择账户 —</option>
+      {accounts.map(a => <option key={a} value={a}>{a}</option>)}
+      {!accounts.includes(current) && current && <option value={current}>{current}</option>}
+    </>
+  );
 
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!txn) return null;
+
+  const canEditSplits = txn.status !== 'EXPORTED';
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h2 className="page-title">交易 #{txn.id}</h2>
-          <p className="page-sub">{txn.date} {txn.time ?? ''} · {txn.merchant ?? '—'}</p>
+          <p className="page-sub">{txn.date} {txn.time ?? ''} · {txn.merchant ?? '—'} · {txn.amount} {txn.currency}</p>
         </div>
         <div className="header-actions">
           <Badge status={txn.status} />
@@ -128,14 +163,9 @@ const TransactionDetail = () => {
 
       {actionError && <div className="state-block error-block">操作失败：{actionError}</div>}
 
-      <Card title="Beancount 分录预览">
+      <Card title="Beancount 分录预览（实时）">
         <pre className="code-block"><code>{beanPreview}</code></pre>
-        {txn.direction && (
-          <div className="field-row" style={{ marginTop: 12 }}>
-            <span className="field-label">方向</span>
-            <span>{txn.direction === '收入' ? '收入（资产增加）' : txn.direction === '支出' ? '支出（资产减少）' : txn.direction}</span>
-          </div>
-        )}
+        <p className="page-sub" style={{ marginTop: 8 }}>修改账户/金额后此预览实时更新，与最终导出一致</p>
       </Card>
 
       <Card title="基本信息">
@@ -146,10 +176,11 @@ const TransactionDetail = () => {
             <div className="field-row"><span className="field-label">日期</span><span>{txn.date} {txn.time ?? ''}</span></div>
             <div className="field-row"><span className="field-label">支付方式</span><span>{txn.payment_method ?? '—'}</span></div>
             <div className="field-row"><span className="field-label">交易对方</span><span>{txn.counterparty ?? '—'}</span></div>
+            <div className="field-row"><span className="field-label">方向</span><span>{txn.direction === '收入' ? '收入' : '支出'}</span></div>
             {txn.description && <div className="field-row"><span className="field-label">描述</span><span>{txn.description}</span></div>}
             {txn.source_transaction_id && <div className="field-row"><span className="field-label">来源单号</span><span>{txn.source_transaction_id}</span></div>}
             <div style={{ marginTop: 12 }}>
-              <Button variant="ghost" onClick={startEdit} disabled={txn.status === 'CONFIRMED'}>编辑</Button>
+              <Button variant="ghost" onClick={startEdit} disabled={txn.status === 'EXPORTED'}>编辑</Button>
             </div>
           </>
         ) : (
@@ -174,51 +205,59 @@ const TransactionDetail = () => {
         )}
       </Card>
 
-      <Card title="分片（可编辑）">
-        {txn.splits && txn.splits.length > 0 ? (
-          <table className="ui-table">
-            <thead><tr><th>账户</th><th>金额</th></tr></thead>
-            <tbody>
-              {txn.splits.map((s: any) => (
-                <tr key={s.id}>
-                  <td>
-                    <input
-                      defaultValue={s.account}
-                      onBlur={e => { if (e.target.value !== s.account) saveSplit(s.id, 'account', e.target.value); }}
-                      style={{ width: '100%' }}
-                      disabled={txn.status === 'CONFIRMED'}
-                    />
-                  </td>
-                  <td>
-                    <input
-                      defaultValue={s.amount}
-                      onBlur={e => { if (e.target.value !== s.amount) saveSplit(s.id, 'amount', e.target.value); }}
-                      style={{ width: 120 }}
-                      disabled={txn.status === 'CONFIRMED'}
-                    />
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        ) : (
-          <p className="field-label">暂无分录</p>
-        )}
-        <p className="page-sub" style={{ marginTop: 8 }}>修改后自动保存；金额总和用于导出时平衡，请确保和为交易金额</p>
+      <Card title="支付方式（Assets 账户）">
+        {paymentRows.map((row, idx) => (
+          <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+            <select value={row.account} onChange={e => {
+              const next = [...paymentRows]; next[idx] = { ...next[idx], account: e.target.value }; setPaymentRows(next);
+            }} style={{ flex: 1 }} disabled={!canEditSplits}>
+              {accountOptions(row.account)}
+            </select>
+            <input value={row.amount} onChange={e => {
+              const next = [...paymentRows]; next[idx] = { ...next[idx], amount: e.target.value }; setPaymentRows(next);
+            }} style={{ width: 110 }} disabled={!canEditSplits} />
+            <Button variant="danger" onClick={() => setPaymentRows(paymentRows.filter((_, i) => i !== idx))} disabled={!canEditSplits}>删除</Button>
+          </div>
+        ))}
+        <Button variant="ghost" onClick={() => setPaymentRows([...paymentRows, { account: accounts[0] ?? '', amount: String(Math.max(txnAmount - paymentTotal, 0).toFixed(2)) }])} disabled={!canEditSplits}>+ 添加支付账户</Button>
+        <div className="field-row" style={{ marginTop: 8 }}>
+          <span className="field-label">已分配</span>
+          <span style={{ color: paymentOk ? 'var(--color-success)' : 'var(--color-danger)' }}>{paymentTotal.toFixed(2)} / {txnAmount.toFixed(2)}</span>
+          {!paymentOk && <span style={{ color: 'var(--color-danger)', marginLeft: 8 }}>支付方式账户分配金额必须等于交易金额</span>}
+        </div>
       </Card>
 
-      {(txn.review_reason || txn.duplicate_reason) && (
-        <Card title="审核信息">
-          {txn.review_reason && <div className="field-row"><span className="field-label">审核原因</span><span>{txn.review_reason}</span></div>}
-          {txn.duplicate_reason && <div className="field-row"><span className="field-label">重复原因</span><span>{txn.duplicate_reason}</span></div>}
-        </Card>
-      )}
+      <Card title="交易对方（Expenses 账户）">
+        {expenseRows.map((row, idx) => (
+          <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
+            <select value={row.account} onChange={e => {
+              const next = [...expenseRows]; next[idx] = { ...next[idx], account: e.target.value }; setExpenseRows(next);
+            }} style={{ flex: 1 }} disabled={!canEditSplits}>
+              {accountOptions(row.account)}
+            </select>
+            <input value={row.amount} onChange={e => {
+              const next = [...expenseRows]; next[idx] = { ...next[idx], amount: e.target.value }; setExpenseRows(next);
+            }} style={{ width: 110 }} disabled={!canEditSplits} />
+            <Button variant="danger" onClick={() => setExpenseRows(expenseRows.filter((_, i) => i !== idx))} disabled={!canEditSplits}>删除</Button>
+          </div>
+        ))}
+        <Button variant="ghost" onClick={() => setExpenseRows([...expenseRows, { account: accounts.find(a => a.startsWith('Expenses:')) ?? '', amount: String(Math.max(txnAmount - expenseTotal, 0).toFixed(2)) }])} disabled={!canEditSplits}>+ 添加交易对方</Button>
+        <div className="field-row" style={{ marginTop: 8 }}>
+          <span className="field-label">已分配</span>
+          <span style={{ color: expenseOk ? 'var(--color-success)' : 'var(--color-danger)' }}>{expenseTotal.toFixed(2)} / {txnAmount.toFixed(2)}</span>
+          {!expenseOk && <span style={{ color: 'var(--color-danger)', marginLeft: 8 }}>交易对方账户分配金额必须等于交易金额</span>}
+        </div>
+      </Card>
 
       <div className="result-actions" style={{ justifyContent: 'flex-start' }}>
-        <Button onClick={() => doAction('confirm')} disabled={acting || txn.status === 'CONFIRMED'}>确认</Button>
+        <Button onClick={saveSplits} disabled={acting || !allocationValid || !canEditSplits}>保存账户分配</Button>
+        <Button onClick={() => doAction('confirm')} disabled={acting || txn.status === 'CONFIRMED' || !allocationValid}>确认</Button>
         <Button variant="danger" onClick={() => doAction('ignore')} disabled={acting || txn.status === 'IGNORED'}>跳过（不导出）</Button>
         <Button variant="ghost" onClick={() => navigate('/transactions')}>返回列表</Button>
       </div>
+      {txn.status === 'CONFIRMED' && (
+        <p className="page-sub" style={{ marginTop: 8 }}>⚠ 该交易已确认；如需修改请先保存修改，保存后将自动回到「待审核」状态，需重新确认</p>
+      )}
     </div>
   );
 };

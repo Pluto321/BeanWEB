@@ -37,7 +37,9 @@ class ExportService:
         if existing:
             if existing.file_path and ExportService._file_sha256(existing.file_path) == existing.file_sha256:
                 raise ValueError("Transaction already exported")
-            raise ValueError("Export record conflict: previous export file missing or corrupted")
+            # 旧记录的文件与哈希不一致：由于 fragment 是按月追加的共享文件，
+            # 内容被后续导出更新属正常情况。此时允许重新导出（新记录），不阻塞。
+            pass
 
         record = ExportRecord(transaction_id=txn_id, status="PENDING", file_path="", file_sha256="")
         db.add(record)
@@ -83,13 +85,15 @@ class ExportService:
         return record
 
     @staticmethod
-    def _render(db: Session, txn: Transaction) -> str:
-        """渲染真实 Beancount 分录：
-        - 第一个 split 为交易来源账户（如支付账户，带负号）
-        - 其余 split 为分类账户（正数）
-        - 所有 split 金额之和必须等于 0（复式记账）
+    def render_preview(txn: Transaction, splits: list[TransactionSplit]) -> str:
+        """从已加载的 Transaction + splits 渲染 Beancount 分录（无 DB 依赖，前端预览与导出共用同一逻辑）。
+
+        语义（与 PUT /{id}/splits 写入口径一致）：
+        - payment 账户（Assets，用户选择或默认）金额为负数（支出时）或正数（收入时）
+        - expense 账户（Expenses/Income 等分类账户）金额为正数（支出时）或负数（收入时）
+        - 用户通过 PUT splits 显式选择的 Assets 账户直接作为支付账户输出；
+          未选择时用 settings.DEFAULT_ASSETS_ACCOUNT 兜底
         """
-        splits = db.query(TransactionSplit).filter(TransactionSplit.transaction_id == txn.id).all()
         if not splits:
             raise ValueError("Transaction has no splits, cannot export")
 
@@ -98,20 +102,28 @@ class ExportService:
         if txn.raw_transaction_id:
             lines.append(f'  raw_id: "{txn.raw_transaction_id}"')
 
-        amount = Decimal(str(txn.amount))
-        signed_splits = [(s.account, Decimal(s.amount)) for s in splits]
-        # 校验借贷平衡：split 金额总和应为 0；若 DB 中 split 均为正数（历史数据），
-        # 则用负号账户补齐第一行为资产账户
-        total = sum(a for _, a in signed_splits)
-        if total != 0:
-            direction = getattr(txn, "direction", None) or "支出"
-            if direction == "收入":
-                # 收入：分类账户（Income）记负数，资产账户记正数
-                signed_splits = [(acc, -val) for acc, val in signed_splits]
-                remaining = -sum(a for _, a in signed_splits)
-            else:
-                remaining = -total
-            signed_splits.insert(0, ("Assets:BeanWEB", remaining))
-        for acc, val in signed_splits:
+        total = sum(Decimal(s.amount) for s in splits)
+        direction = getattr(txn, "direction", None) or "支出"
+
+        # 区分用户显式选择的支付账户（Assets）与分类账户
+        payment_splits = [(s.account, Decimal(s.amount)) for s in splits if s.account.startswith("Assets:")]
+        category_splits = [(s.account, Decimal(s.amount)) for s in splits if not s.account.startswith("Assets:")]
+
+        if not payment_splits:
+            payment_splits = [(settings.DEFAULT_ASSETS_ACCOUNT, total)]
+
+        if direction == "收入":
+            signed = [(acc, -val) for acc, val in category_splits]
+            signed += [(acc, val) for acc, val in payment_splits]
+        else:
+            signed = [(acc, val) for acc, val in category_splits]
+            signed += [(acc, -val) for acc, val in payment_splits]
+
+        for acc, val in signed:
             lines.append(f'  {acc:<32} {val:>12} {txn.currency}')
         return "\n".join(lines)
+
+    @staticmethod
+    def _render(db: Session, txn: Transaction) -> str:
+        splits = db.query(TransactionSplit).filter(TransactionSplit.transaction_id == txn.id).all()
+        return ExportService.render_preview(txn, splits)
