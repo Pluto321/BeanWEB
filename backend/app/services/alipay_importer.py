@@ -9,7 +9,10 @@ class AlipayImporter(BaseImporter):
     name = "alipay"
 
     def detect(self, raw_data: Dict) -> bool:
-        return "交易号" in raw_data
+        # 真实支付宝 CSV 表头（GBK 编码导出）：交易时间/交易分类/交易对方/交易订单号...
+        # 历史测试 fixture 使用「交易号」，两者都接受
+        keys = set(raw_data.keys())
+        return "交易时间" in keys and "交易订单号" in keys and "收/支" in keys or "交易号" in keys
 
     def parse(self, file_path: str) -> List[Dict]:
         for encoding in ("utf-8-sig", "gbk"):
@@ -21,15 +24,29 @@ class AlipayImporter(BaseImporter):
         raise ValueError("无法读取文件：不支持的编码（尝试了 UTF-8 和 GBK）")
 
     def normalize(self, raw_data: Dict) -> NormalizedTransaction:
-        ts = raw_data.get("交易时间", "1970-01-01 00:00:00")
-        parts = ts.split(" ")
+        ts = raw_data.get("交易时间", "1970-01-01")
+        # 真实账单时间格式：2026/6/30 22:27（无秒、斜杠分隔）；fixture：2026-09-08 10:00:00
+        date_part, _, time_part = ts.partition(" ")
+        # 统一日期为 YYYY-MM-DD
+        try:
+            y, m, d = date_part.replace("/", "-").split("-")
+            if len(m) == 1:
+                m = f"0{m}"
+            if len(d) == 1:
+                d = f"0{d}"
+            date_norm = f"{y}-{m}-{d}"
+        except ValueError:
+            date_norm = date_part
+        source_id = raw_data.get("交易订单号") or raw_data.get("交易号") or ""
+        amount = parse_decimal(raw_data.get("金额", "0"))
+        direction = raw_data.get("收/支", "不计收支")
         return NormalizedTransaction(
-            source_transaction_id=raw_data.get("交易号", ""),
-            date=parts[0],
-            time=parts[1] if len(parts) > 1 else "",
-            amount=parse_decimal(raw_data.get("金额", "0")),
+            source_transaction_id=str(source_id).strip(),
+            date=date_norm,
+            time=time_part,
+            amount=amount,
             currency="CNY",
-            direction=raw_data.get("收/支", "不计收支"),
+            direction=direction,
             transaction_type=raw_data.get("交易分类", ""),
             merchant=raw_data.get("交易对方", ""),
             description=raw_data.get("商品说明", ""),
