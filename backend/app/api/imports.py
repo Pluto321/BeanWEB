@@ -51,6 +51,8 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
         dedup = DeduplicationService()
         engine = RuleService.build_engine(db)
         txn_count = 0
+        created_count = 0
+        duplicate_count = 0
         review_count = 0
 
         for row in raw_data_list:
@@ -60,34 +62,49 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
 
             # Normalize
             norm_txn = importer.normalize(row)
+            raw_hash = dedup.get_raw_hash(row)
+            fingerprint = dedup.get_canonical_fingerprint(norm_txn.model_dump())
 
-            # Deduplicate
-            if dedup.check(norm_txn.source_transaction_id, row, norm_txn.model_dump()) == "UNIQUE":
-                # Rule Engine 分类（可能返回空 dict）
-                actions = engine.apply(norm_txn.model_dump())
-                txn = Transaction(
-                    raw_transaction_id=raw.id,
-                    date=norm_txn.date,
-                    time=norm_txn.time,
-                    amount=str(norm_txn.amount),
-                    currency=norm_txn.currency,
-                    merchant=norm_txn.merchant,
-                    description=norm_txn.description,
-                    payment_method=norm_txn.payment_method,
-                    counterparty=norm_txn.counterparty,
-                    status="REVIEW_REQUIRED",
-                )
-                db.add(txn)
-                db.flush()
+            # Deduplicate（三层）
+            dup_result, dup_reason = dedup.check_against_db(
+                db, norm_txn.source_transaction_id, raw_hash, fingerprint
+            )
+            if dup_result != "UNIQUE":
+                duplicate_count += 1
+                txn_count += 1
+                continue
 
-                # Split：来源账户为负（资产流出），分类账户为正
-                split = TransactionSplit(
-                    transaction_id=txn.id,
-                    account=actions.get("account", "Expenses:Uncategorized"),
-                    amount=str(norm_txn.amount),
-                )
-                db.add(split)
-                review_count += 1
+            # Rule Engine 分类（可能返回空 dict）
+            actions = engine.apply(norm_txn.model_dump())
+            txn = Transaction(
+                raw_transaction_id=raw.id,
+                date=norm_txn.date,
+                time=norm_txn.time,
+                amount=str(norm_txn.amount),
+                currency=norm_txn.currency,
+                merchant=norm_txn.merchant,
+                description=norm_txn.description,
+                payment_method=norm_txn.payment_method,
+                counterparty=norm_txn.counterparty,
+                direction=norm_txn.direction,
+                source_type=batch.source_type,
+                source_transaction_id=norm_txn.source_transaction_id,
+                raw_hash=raw_hash,
+                canonical_fingerprint=fingerprint,
+                status="REVIEW_REQUIRED",
+            )
+            db.add(txn)
+            db.flush()
+
+            # Split：来源账户为负（资产流出），分类账户为正
+            split = TransactionSplit(
+                transaction_id=txn.id,
+                account=actions.get("account", "Expenses:Uncategorized"),
+                amount=str(norm_txn.amount),
+            )
+            db.add(split)
+            review_count += 1
+            created_count += 1
             txn_count += 1
 
         batch.status = "COMPLETED"
@@ -98,6 +115,8 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
             "filename": file.filename,
             "status": "COMPLETED",
             "transaction_count": txn_count,
+            "created_count": created_count,
+            "duplicate_count": duplicate_count,
             "review_required_count": review_count,
         }
     except HTTPException:

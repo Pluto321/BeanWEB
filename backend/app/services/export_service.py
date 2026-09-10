@@ -102,7 +102,13 @@ class ExportService:
         # 则用负号账户补齐第一行为资产账户
         total = sum(a for _, a in signed_splits)
         if total != 0:
-            remaining = -total
+            direction = getattr(txn, "direction", None) or "支出"
+            if direction == "收入":
+                # 收入：分类账户（Income）记负数，资产账户记正数
+                signed_splits = [(acc, -val) for acc, val in signed_splits]
+                remaining = -sum(a for _, a in signed_splits)
+            else:
+                remaining = -total
             signed_splits.insert(0, ("Assets:BeanWEB", remaining))
         for acc, val in signed_splits:
             lines.append(f'  {acc:<32} {val:>12} {txn.currency}')
