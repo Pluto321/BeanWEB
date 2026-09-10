@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.models.models import Transaction, AuditLog
 from app.services.review import ReviewService
@@ -9,14 +9,19 @@ router = APIRouter(prefix="/api/transactions")
 
 @router.get("/")
 def get_transactions(status: Optional[str] = Query(None), db: Session = Depends(get_db)):
-    query = db.query(Transaction)
+    query = db.query(Transaction).options(joinedload(Transaction.splits))
     if status:
         query = query.filter(Transaction.status == status)
     return query.all()
 
 @router.get("/{txn_id}")
 def get_transaction(txn_id: int, db: Session = Depends(get_db)):
-    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
+    txn = (
+        db.query(Transaction)
+        .options(joinedload(Transaction.splits))
+        .filter(Transaction.id == txn_id)
+        .first()
+    )
     if not txn:
         raise HTTPException(status_code=404, detail="Transaction not found")
     return txn
