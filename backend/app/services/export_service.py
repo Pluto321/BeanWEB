@@ -24,6 +24,8 @@ class ExportService:
         txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
         if not txn:
             raise ValueError("Transaction not found")
+        if txn.status == "IGNORED":
+            raise ValueError("被跳过的交易不会导出")
         if txn.status != "CONFIRMED":
             raise ValueError("Only CONFIRMED transactions can be exported")
 
