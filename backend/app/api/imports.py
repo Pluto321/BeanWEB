@@ -63,6 +63,8 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
 
             # Deduplicate
             if dedup.check(norm_txn.source_transaction_id, row, norm_txn.model_dump()) == "UNIQUE":
+                # Rule Engine 分类（可能返回空 dict）
+                actions = engine.apply(norm_txn.model_dump())
                 txn = Transaction(
                     raw_transaction_id=raw.id,
                     date=norm_txn.date,
@@ -71,13 +73,14 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
                     currency=norm_txn.currency,
                     merchant=norm_txn.merchant,
                     description=norm_txn.description,
+                    payment_method=norm_txn.payment_method,
+                    counterparty=norm_txn.counterparty,
                     status="REVIEW_REQUIRED",
                 )
                 db.add(txn)
                 db.flush()
 
-                # Rule Engine & Split
-                actions = engine.apply(norm_txn.model_dump())
+                # Split：来源账户为负（资产流出），分类账户为正
                 split = TransactionSplit(
                     transaction_id=txn.id,
                     account=actions.get("account", "Expenses:Uncategorized"),

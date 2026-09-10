@@ -7,10 +7,13 @@ from alembic import context
 # 确保 backend 目录在 sys.path 中，以便导入 app.models
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 
-from app.db.session import Base
+from app.db.session import Base, DATABASE_URL
 from app.models.models import *
 
 config = context.config
+# 强制使用与运行时一致的数据库路径（绝对路径），避免 alembic.ini 相对路径在
+# 非 backend 目录执行时建错库
+config.set_main_option("sqlalchemy.url", DATABASE_URL)
 # fileConfig(config.config_file_name)
 # if config.config_file_name is not None:
 #     fileConfig(config.config_file_name)

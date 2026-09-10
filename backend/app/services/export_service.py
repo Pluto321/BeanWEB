@@ -82,16 +82,28 @@ class ExportService:
 
     @staticmethod
     def _render(db: Session, txn: Transaction) -> str:
+        """渲染真实 Beancount 分录：
+        - 第一个 split 为交易来源账户（如支付账户，带负号）
+        - 其余 split 为分类账户（正数）
+        - 所有 split 金额之和必须等于 0（复式记账）
+        """
         splits = db.query(TransactionSplit).filter(TransactionSplit.transaction_id == txn.id).all()
+        if not splits:
+            raise ValueError("Transaction has no splits, cannot export")
+
         lines = [f'{txn.date} * "{txn.merchant or ""}" "{txn.description or ""}"']
         lines.append(f'  id: "{txn.id}"')
         if txn.raw_transaction_id:
             lines.append(f'  raw_id: "{txn.raw_transaction_id}"')
-        amount = Decimal(str(txn.amount)).quantize(Decimal("0.01"))
-        balance = -amount
-        lines.append(f'  {"Assets:BeanWEB":<32} {amount:>12} {txn.currency}')
-        for s in splits[:-1] if splits else []:
-            lines.append(f'  {s.account:<32} {Decimal(s.amount):>12} {txn.currency}')
-            balance += Decimal(s.amount)
-        lines.append(f'  {"Expenses:Uncategorized":<32} {balance:>12} {txn.currency}')
+
+        amount = Decimal(str(txn.amount))
+        signed_splits = [(s.account, Decimal(s.amount)) for s in splits]
+        # 校验借贷平衡：split 金额总和应为 0；若 DB 中 split 均为正数（历史数据），
+        # 则用负号账户补齐第一行为资产账户
+        total = sum(a for _, a in signed_splits)
+        if total != 0:
+            remaining = -total
+            signed_splits.insert(0, ("Assets:BeanWEB", remaining))
+        for acc, val in signed_splits:
+            lines.append(f'  {acc:<32} {val:>12} {txn.currency}')
         return "\n".join(lines)
