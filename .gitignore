@@ -1,0 +1,24 @@
+# 真实账单与隐私数据
+账本/
+*.xlsx
+*.xls
+*.csv
+
+# 运行时数据（数据库、原始文件、生成账本）
+*.db
+*.sqlite
+*.sqlite3
+storage/raw/
+backend/storage/
+backend/ledgers/
+backend/temp_*
+
+# 环境与缓存
+.env
+__pycache__/
+.pytest_cache/
+.venv/
+
+# 前端构建产物
+frontend/node_modules/
+frontend/dist/
