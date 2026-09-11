@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
+import { AccountCombobox } from '../components/AccountCombobox';
 import { Badge, Button, Card, ErrorState, LoadingState } from '../components/UIComponents';
 
 type SplitRow = { account: string; amount: string };
@@ -143,6 +144,44 @@ const TransactionDetail = () => {
     </>
   );
 
+  // 根据交易方向推断支付账户初始值：从"支付方式"文本模糊匹配已有 Assets 账户
+  const guessPaymentAccount = useCallback((paymentMethod: string | null | undefined): string => {
+    if (!paymentMethod) return '';
+    const text = paymentMethod.toLowerCase();
+    const rules: [string, string][] = [
+      ['alipay', 'Assets:Alipay'],
+      ['支付宝', 'Assets:Alipay'],
+      ['余额宝', 'Assets:Alipay'],
+      ['微信', 'Assets:WeChat'],
+      ['wechat', 'Assets:WeChat'],
+      ['零钱', 'Assets:WeChat'],
+      ['建行', 'Assets:Bank:CCB'],
+      ['建设', 'Assets:Bank:CCB'],
+      ['ccb', 'Assets:Bank:CCB'],
+      ['中行', 'Assets:Bank:BOC'],
+      ['中国银行', 'Assets:Bank:BOC'],
+      ['boc', 'Assets:Bank:BOC'],
+      ['交行', 'Assets:Bank:BOCOM'],
+      ['交通', 'Assets:Bank:BOCOM'],
+      ['招行', 'Assets:Bank:CMB'],
+      ['招商', 'Assets:Bank:CMB'],
+      ['现金', 'Assets:Cash'],
+    ];
+    for (const [kw, account] of rules) {
+      if (text.includes(kw) && accounts.includes(account)) return account;
+    }
+    return '';
+  }, [accounts]);
+
+  // 初始化时若支付账户行为空，按"支付方式"文本自动填入
+  useEffect(() => {
+    if (!txn || loading) return;
+    setPaymentRows(rows => {
+      const filled = rows.map(r => r.account ? r : { ...r, account: guessPaymentAccount(txn.payment_method) });
+      return filled;
+    });
+  }, [txn, loading, guessPaymentAccount]);
+
   if (loading) return <LoadingState />;
   if (error) return <ErrorState message={error} onRetry={load} />;
   if (!txn) return null;
@@ -208,11 +247,14 @@ const TransactionDetail = () => {
       <Card title="支付方式（Assets 账户）">
         {paymentRows.map((row, idx) => (
           <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <select value={row.account} onChange={e => {
-              const next = [...paymentRows]; next[idx] = { ...next[idx], account: e.target.value }; setPaymentRows(next);
-            }} style={{ flex: 1 }} disabled={!canEditSplits}>
-              {accountOptions(row.account)}
-            </select>
+            <AccountCombobox
+              value={row.account}
+              onChange={v => {
+                const next = [...paymentRows]; next[idx] = { ...next[idx], account: v }; setPaymentRows(next);
+              }}
+              options={accounts}
+              disabled={!canEditSplits}
+            />
             <input value={row.amount} onChange={e => {
               const next = [...paymentRows]; next[idx] = { ...next[idx], amount: e.target.value }; setPaymentRows(next);
             }} style={{ width: 110 }} disabled={!canEditSplits} />
@@ -230,11 +272,14 @@ const TransactionDetail = () => {
       <Card title="交易对方（Expenses 账户）">
         {expenseRows.map((row, idx) => (
           <div key={idx} style={{ display: 'flex', gap: 8, marginBottom: 8, alignItems: 'center' }}>
-            <select value={row.account} onChange={e => {
-              const next = [...expenseRows]; next[idx] = { ...next[idx], account: e.target.value }; setExpenseRows(next);
-            }} style={{ flex: 1 }} disabled={!canEditSplits}>
-              {accountOptions(row.account)}
-            </select>
+            <AccountCombobox
+              value={row.account}
+              onChange={v => {
+                const next = [...expenseRows]; next[idx] = { ...next[idx], account: v }; setExpenseRows(next);
+              }}
+              options={accounts}
+              disabled={!canEditSplits}
+            />
             <input value={row.amount} onChange={e => {
               const next = [...expenseRows]; next[idx] = { ...next[idx], amount: e.target.value }; setExpenseRows(next);
             }} style={{ width: 110 }} disabled={!canEditSplits} />

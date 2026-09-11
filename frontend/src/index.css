@@ -380,6 +380,32 @@ input:focus, select:focus { border-color: var(--primary); }
   margin: 0;
 }
 
+/* ===== Combobox ===== */
+.combobox-menu {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.12);
+  max-height: 220px;
+  overflow-y: auto;
+  z-index: 50;
+}
+
+.combobox-item {
+  padding: 8px 12px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text);
+}
+
+.combobox-item:hover { background: var(--primary-bg); color: var(--primary); }
+.combobox-item.active { background: var(--primary); color: #fff; }
+.combobox-item.muted { color: var(--text-faint); font-size: 12px; }
+
 /* ===== Responsive ===== */
 @media (max-width: 760px) {
   .header-inner { padding: 0 16px; overflow-x: auto; }
