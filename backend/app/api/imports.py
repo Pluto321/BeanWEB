@@ -14,119 +14,350 @@ import app.services.alipay_importer  # noqa: F401  注册内置 Importer
 router = APIRouter(prefix="/api/imports")
 storage = StorageService()
 
+BATCH_STATUS_ANALYZED = "PENDING_ANALYZED"
+BATCH_STATUS_COMPLETED = "COMPLETED"
+BATCH_STATUS_ERROR = "IMPORT_ERROR"
 
-@router.post("/")
-async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_db)):
-    # 1. 初始化 Batch
-    batch = ImportBatch(source_type="UNKNOWN", filename=file.filename)
+ACTIVE_TXN_STATUS = ("REVIEW_REQUIRED", "POSSIBLE_DUPLICATE", "CONFIRMED")
+
+
+def _save_upload(file: UploadFile, db: Session, batch: ImportBatch) -> tuple[str, DBFile]:
+    """保存上传文件到 storage 并创建 File 记录（Raw 不可变）。返回 (storage_path, db_file)"""
+    temp_path = f"temp_{uuid.uuid4()}"
+    with open(temp_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    try:
+        storage_path = storage.save(temp_path, batch.id)
+        sha256 = storage._calculate_sha256(storage_path)
+        if db.query(DBFile).filter(DBFile.sha256 == sha256).first():
+            raise HTTPException(status_code=409, detail="File already imported")
+        db_file = DBFile(original_name=file.filename, storage_path=storage_path,
+                         sha256=sha256, size=os.path.getsize(storage_path), source_type="UNKNOWN",
+                         import_batch_id=batch.id)
+        db.add(db_file)
+        db.flush()
+        return storage_path, db_file
+    finally:
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+
+def _analyze_rows(db: Session, importer, raw_data_list: list[dict], db_file: DBFile) -> dict:
+    """对解析出的行做 Normalize + Dedup 分析。只统计，不写 Transaction。"""
+    dedup = DeduplicationService()
+    stats = {"total": 0, "new": 0, "existing": 0, "possible_duplicate": 0, "invalid": 0}
+    invalid_rows: list[dict] = []
+    duplicates: list[dict] = []
+
+    for idx, row in enumerate(raw_data_list, start=1):
+        stats["total"] += 1
+        try:
+            norm = importer.normalize(row)
+            if not norm.date or not norm.amount or not norm.source_transaction_id:
+                raise ValueError("缺少必要字段（日期/金额/交易订单号）")
+        except Exception as e:
+            stats["invalid"] += 1
+            invalid_rows.append({
+                "row_number": idx,
+                "error": str(e),
+                "raw": {k: (str(v)[:40] if v else "") for k, v in row.items()},
+            })
+            continue
+
+        raw_hash = dedup.get_raw_hash(row)
+        fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
+        result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
+        if result == "UNIQUE":
+            stats["new"] += 1
+        elif result == "EXACT_DUPLICATE":
+            stats["existing"] += 1
+        else:
+            stats["possible_duplicate"] += 1
+            duplicates.append({
+                "row_number": idx,
+                "date": norm.date,
+                "merchant": norm.merchant,
+                "amount": str(norm.amount),
+                "reason": reason,
+                "raw": {k: (str(v)[:40] if v else "") for k, v in row.items()},
+            })
+
+    return {"stats": stats, "invalid_rows": invalid_rows, "duplicates": duplicates}
+
+
+@router.post("/analyze")
+async def analyze_import(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """阶段 2：分析文件。只保存 Raw 数据（不可变），不创建 Transaction。"""
+    batch = ImportBatch(source_type="UNKNOWN", filename=file.filename, status="ANALYZING")
     db.add(batch)
     db.commit()
     db.refresh(batch)
 
-    # 2. 保存文件
-    temp_path = f"temp_{uuid.uuid4()}"
-    with open(temp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-
     try:
-        storage_path = storage.save(temp_path, batch.id)
-        sha256 = storage._calculate_sha256(storage_path)
+        storage_path, db_file = _save_upload(file, db, batch)
 
-        # 3. 检查文件是否已导入
-        if db.query(DBFile).filter(DBFile.sha256 == sha256).first():
-            raise HTTPException(status_code=409, detail="File already imported")
-
-        db_file = DBFile(original_name=file.filename, storage_path=storage_path,
-                         sha256=sha256, size=os.path.getsize(storage_path), source_type="UNKNOWN")
-        db.add(db_file)
-        db.flush()
-
-        # 4. 识别与解析：先用文件首行内容 detect，再解析
         importer = ImporterRegistry.get_importer(storage_path)
         raw_data_list = importer.parse(storage_path)
-        batch.source_type = "ALIPAY" if "alipay" in file.filename.lower() else "BANK"
+        if not raw_data_list:
+            raise ValueError("文件中没有可解析的数据行")
+
+        batch.source_type = importer.name.upper()
         db_file.source_type = batch.source_type
 
-        # 5. Pipeline 执行
-        dedup = DeduplicationService()
-        engine = RuleService.build_engine(db)
-        txn_count = 0
-        created_count = 0
-        duplicate_count = 0
-        review_count = 0
+        # 保存 RawTransaction（Raw 不可变，属于原始数据，不算业务导入结果）
+        for idx, row in enumerate(raw_data_list, start=1):
+            db.add(RawTransaction(file_id=db_file.id, raw_data_json=row, row_number=idx))
+        db.flush()
 
-        for row in raw_data_list:
-            raw = RawTransaction(file_id=db_file.id, raw_data_json=row)
-            db.add(raw)
-            db.flush()
+        analysis = _analyze_rows(db, importer, raw_data_list, db_file)
 
-            # Normalize
-            norm_txn = importer.normalize(row)
-            raw_hash = dedup.get_raw_hash(row)
-            fingerprint = dedup.get_canonical_fingerprint(norm_txn.model_dump())
-
-            # Deduplicate（三层）
-            dup_result, dup_reason = dedup.check_against_db(
-                db, norm_txn.source_transaction_id, raw_hash, fingerprint
-            )
-            if dup_result != "UNIQUE":
-                duplicate_count += 1
-                txn_count += 1
-                continue
-
-            # Rule Engine 分类（可能返回空 dict）
-            actions = engine.apply(norm_txn.model_dump())
-            txn = Transaction(
-                raw_transaction_id=raw.id,
-                date=norm_txn.date,
-                time=norm_txn.time,
-                amount=str(norm_txn.amount),
-                currency=norm_txn.currency,
-                merchant=norm_txn.merchant,
-                description=norm_txn.description,
-                payment_method=norm_txn.payment_method,
-                counterparty=norm_txn.counterparty,
-                direction=norm_txn.direction,
-                source_type=batch.source_type,
-                source_transaction_id=norm_txn.source_transaction_id,
-                raw_hash=raw_hash,
-                canonical_fingerprint=fingerprint,
-                status="REVIEW_REQUIRED",
-            )
-            db.add(txn)
-            db.flush()
-
-            # Split：来源账户为负（资产流出），分类账户为正
-            split = TransactionSplit(
-                transaction_id=txn.id,
-                account=actions.get("account", "Expenses:Uncategorized"),
-                amount=str(norm_txn.amount),
-            )
-            db.add(split)
-            review_count += 1
-            created_count += 1
-            txn_count += 1
-
-        batch.status = "COMPLETED"
+        batch.status = BATCH_STATUS_ANALYZED
         db.commit()
 
         return {
             "import_id": batch.id,
             "filename": file.filename,
-            "status": "COMPLETED",
-            "transaction_count": txn_count,
-            "created_count": created_count,
-            "duplicate_count": duplicate_count,
-            "review_required_count": review_count,
+            "parser": importer.name,
+            "batch_status": batch.status,
+            **analysis,
         }
+    except HTTPException:
+        db.rollback()
+        batch.status = BATCH_STATUS_ERROR
+        batch.error_message = "analyze failed"
+        db.commit()
+        raise
+    except Exception as e:
+        db.rollback()
+        batch.status = BATCH_STATUS_ERROR
+        batch.error_message = str(e)
+        db.commit()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/commit/{batch_id}")
+def commit_import(batch_id: int, db: Session = Depends(get_db)):
+    """阶段 5：正式导入。从已分析的 RawTransaction 创建 Transaction（幂等：Dedup 兜底）。"""
+    batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+    if batch.status == BATCH_STATUS_COMPLETED:
+        raise HTTPException(status_code=409, detail="该批次已经导入完成，不能重复导入")
+    if batch.status != BATCH_STATUS_ANALYZED:
+        raise HTTPException(status_code=400, detail=f"批次状态为 {batch.status}，不能导入")
+
+    db_file = db.query(DBFile).filter(DBFile.import_batch_id == batch_id).first()
+    if not db_file:
+        raise HTTPException(status_code=400, detail="批次缺少文件记录")
+
+    importer = ImporterRegistry.get_importer(db_file.storage_path)
+    raws = (
+        db.query(RawTransaction)
+        .filter(RawTransaction.file_id == db_file.id)
+        .order_by(RawTransaction.row_number)
+        .all()
+    )
+    if not raws:
+        raise HTTPException(status_code=400, detail="批次没有 Raw 数据")
+
+    dedup = DeduplicationService()
+    engine = RuleService.build_engine(db)
+    stats = {"total": 0, "created": 0, "existing": 0, "possible_duplicate": 0, "review_required": 0}
+
+    for raw in raws:
+        stats["total"] += 1
+        try:
+            norm = importer.normalize(raw.raw_data_json)
+        except Exception:
+            continue  # 无效行已在 analyze 阶段统计，跳过
+
+        raw_hash = dedup.get_raw_hash(raw.raw_data_json)
+        fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
+        result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
+        if result == "EXACT_DUPLICATE":
+            stats["existing"] += 1
+            continue
+        if result == "POSSIBLE_DUPLICATE":
+            stats["possible_duplicate"] += 1
+            status = "POSSIBLE_DUPLICATE"
+            review_required_status = "POSSIBLE_DUPLICATE"
+        else:
+            review_required_status = "REVIEW_REQUIRED"
+
+        actions = engine.apply(norm.model_dump())
+        txn = Transaction(
+            raw_transaction_id=raw.id,
+            date=norm.date,
+            time=norm.time,
+            amount=str(norm.amount),
+            currency=norm.currency,
+            merchant=norm.merchant,
+            description=norm.description,
+            payment_method=norm.payment_method,
+            counterparty=norm.counterparty,
+            direction=norm.direction,
+            source_type=batch.source_type,
+            source_transaction_id=norm.source_transaction_id,
+            raw_hash=raw_hash,
+            canonical_fingerprint=fingerprint,
+            status=review_required_status,
+        )
+        db.add(txn)
+        db.flush()
+        db.add(TransactionSplit(
+            transaction_id=txn.id,
+            account=actions.get("account", "Expenses:Uncategorized"),
+            amount=str(norm.amount),
+        ))
+        if review_required_status == "REVIEW_REQUIRED":
+            stats["review_required"] += 1
+        stats["created"] += 1
+
+    batch.status = BATCH_STATUS_COMPLETED
+    from datetime import datetime
+    batch.completed_at = datetime.now()
+    db.commit()
+
+    return {"import_id": batch.id, "filename": batch.filename, "status": "COMPLETED", **stats}
+
+
+@router.get("/")
+def import_history(
+    status: str | None = None,
+    page: int = 1,
+    page_size: int = 20,
+    db: Session = Depends(get_db),
+):
+    q = db.query(ImportBatch)
+    if status:
+        q = q.filter(ImportBatch.status == status)
+    total = q.count()
+    rows = q.order_by(ImportBatch.id.desc()).offset((page - 1) * page_size).limit(page_size).all()
+    return {"total": total, "page": page, "page_size": page_size, "items": [
+        {
+            "id": b.id,
+            "filename": b.filename,
+            "source_type": b.source_type,
+            "status": b.status,
+            "error_message": b.error_message,
+            "started_at": str(b.started_at),
+            "completed_at": str(b.completed_at) if b.completed_at else None,
+        }
+        for b in rows
+    ]}
+
+
+@router.get("/{batch_id}")
+def import_detail(batch_id: int, db: Session = Depends(get_db)):
+    batch = db.query(ImportBatch).filter(ImportBatch.id == batch_id).first()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Import batch not found")
+    db_file = db.query(DBFile).filter(DBFile.import_batch_id == batch_id).first()
+    txn_ids = []
+    if db_file:
+        txn_ids = [
+            r[0] for r in db.query(Transaction.id)
+            .join(RawTransaction, Transaction.raw_transaction_id == RawTransaction.id)
+            .filter(RawTransaction.file_id == db_file.id)
+            .all()
+        ]
+    return {
+        "id": batch.id,
+        "filename": batch.filename,
+        "source_type": batch.source_type,
+        "status": batch.status,
+        "error_message": batch.error_message,
+        "started_at": str(batch.started_at),
+        "completed_at": str(batch.completed_at) if batch.completed_at else None,
+        "file": {
+            "original_name": db_file.original_name,
+            "sha256": db_file.sha256,
+            "size": db_file.size,
+        } if db_file else None,
+        "transaction_ids": txn_ids,
+    }
+
+
+@router.post("/")
+async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_db)):
+    """兼容旧接口：一步完成 analyze + commit。新前端请使用 /analyze + /commit/{id}。"""
+    batch = ImportBatch(source_type="UNKNOWN", filename=file.filename, status="ANALYZING")
+    db.add(batch)
+    db.commit()
+    db.refresh(batch)
+
+    try:
+        storage_path, db_file = _save_upload(file, db, batch)
+        importer = ImporterRegistry.get_importer(storage_path)
+        raw_data_list = importer.parse(storage_path)
+        batch.source_type = importer.name.upper()
+        db_file.source_type = batch.source_type
+
+        for idx, row in enumerate(raw_data_list, start=1):
+            db.add(RawTransaction(file_id=db_file.id, raw_data_json=row, row_number=idx))
+        db.flush()
+
+        dedup = DeduplicationService()
+        engine = RuleService.build_engine(db)
+        stats = {"total": 0, "created": 0, "existing": 0, "possible_duplicate": 0, "review_required": 0}
+
+        for raw in db.query(RawTransaction).filter(RawTransaction.file_id == db_file.id).all():
+            stats["total"] += 1
+            try:
+                norm = importer.normalize(raw.raw_data_json)
+            except Exception:
+                continue
+            raw_hash = dedup.get_raw_hash(raw.raw_data_json)
+            fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
+            result, _reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
+            if result == "EXACT_DUPLICATE":
+                stats["existing"] += 1
+                continue
+            if result == "POSSIBLE_DUPLICATE":
+                stats["possible_duplicate"] += 1
+                status = "POSSIBLE_DUPLICATE"
+            else:
+                status = "REVIEW_REQUIRED"
+
+            actions = engine.apply(norm.model_dump())
+            txn = Transaction(
+                raw_transaction_id=raw.id,
+                date=norm.date,
+                time=norm.time,
+                amount=str(norm.amount),
+                currency=norm.currency,
+                merchant=norm.merchant,
+                description=norm.description,
+                payment_method=norm.payment_method,
+                counterparty=norm.counterparty,
+                direction=norm.direction,
+                source_type=batch.source_type,
+                source_transaction_id=norm.source_transaction_id,
+                raw_hash=raw_hash,
+                canonical_fingerprint=fingerprint,
+                status=status,
+            )
+            db.add(txn)
+            db.flush()
+            db.add(TransactionSplit(
+                transaction_id=txn.id,
+                account=actions.get("account", "Expenses:Uncategorized"),
+                amount=str(norm.amount),
+            ))
+            if status == "REVIEW_REQUIRED":
+                stats["review_required"] += 1
+            stats["created"] += 1
+
+        batch.status = BATCH_STATUS_COMPLETED
+        from datetime import datetime
+        batch.completed_at = datetime.now()
+        db.commit()
+        return {"import_id": batch.id, "filename": file.filename, "status": "COMPLETED", **stats}
     except HTTPException:
         raise
     except Exception as e:
         db.rollback()
-        batch.status = "IMPORT_ERROR"
+        batch.status = BATCH_STATUS_ERROR
         batch.error_message = str(e)
         db.commit()
         raise HTTPException(status_code=400, detail=str(e))
-    finally:
-        if os.path.exists(temp_path):
-            os.remove(temp_path)
