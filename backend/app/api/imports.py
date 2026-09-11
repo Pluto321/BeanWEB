@@ -29,12 +29,20 @@ def _save_upload(file: UploadFile, db: Session, batch: ImportBatch) -> tuple[str
     try:
         storage_path = storage.save(temp_path, batch.id)
         sha256 = storage._calculate_sha256(storage_path)
-        if db.query(DBFile).filter(DBFile.sha256 == sha256).first():
-            raise HTTPException(status_code=409, detail="File already imported")
-        db_file = DBFile(original_name=file.filename, storage_path=storage_path,
-                         sha256=sha256, size=os.path.getsize(storage_path), source_type="UNKNOWN",
-                         import_batch_id=batch.id)
-        db.add(db_file)
+
+        # 文件级去重：同一文件已导入过 → 复用已有 File 记录，不阻塞分析。
+        # Raw 数据不可变，重复分析同一文件是安全的（commit 阶段有交易级 Dedup 兜底）。
+        existing_file = db.query(DBFile).filter(DBFile.sha256 == sha256).first()
+        if existing_file:
+            if not existing_file.import_batch_id:
+                existing_file.import_batch_id = batch.id
+            db_file = existing_file
+            storage_path = existing_file.storage_path
+        else:
+            db_file = DBFile(original_name=file.filename, storage_path=storage_path,
+                             sha256=sha256, size=os.path.getsize(storage_path), source_type="UNKNOWN",
+                             import_batch_id=batch.id)
+            db.add(db_file)
         db.flush()
         return storage_path, db_file
     finally:
