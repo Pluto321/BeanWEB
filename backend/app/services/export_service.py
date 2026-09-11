@@ -35,11 +35,7 @@ class ExportService:
             .first()
         )
         if existing:
-            if existing.file_path and ExportService._file_sha256(existing.file_path) == existing.file_sha256:
-                raise ValueError("Transaction already exported")
-            # 旧记录的文件与哈希不一致：由于 fragment 是按月追加的共享文件，
-            # 内容被后续导出更新属正常情况。此时允许重新导出（新记录），不阻塞。
-            pass
+            raise ValueError("Transaction already exported")
 
         record = ExportRecord(transaction_id=txn_id, status="PENDING", file_path="", file_sha256="")
         db.add(record)
