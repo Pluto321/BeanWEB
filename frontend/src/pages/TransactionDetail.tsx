@@ -262,11 +262,11 @@ const TransactionDetail = () => {
           </div>
         ))}
         <Button variant="ghost" onClick={() => setPaymentRows([...paymentRows, { account: accounts[0] ?? '', amount: String(Math.max(txnAmount - paymentTotal, 0).toFixed(2)) }])} disabled={!canEditSplits}>+ 添加支付账户</Button>
-        <div className="field-row" style={{ marginTop: 8 }}>
-          <span className="field-label">已分配</span>
-          <span style={{ color: paymentOk ? 'var(--color-success)' : 'var(--color-danger)' }}>{paymentTotal.toFixed(2)} / {txnAmount.toFixed(2)}</span>
-          {!paymentOk && <span style={{ color: 'var(--color-danger)', marginLeft: 8 }}>支付方式账户分配金额必须等于交易金额</span>}
-        </div>
+          <div className="field-row" style={{ marginTop: 8, justifyContent: 'flex-end' }}>
+            <span className="field-label">已分配</span>
+            <span style={{ color: paymentOk ? 'var(--color-success)' : 'var(--color-danger)', textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 140 }}>{paymentTotal.toFixed(2)} / {txnAmount.toFixed(2)}</span>
+            {!paymentOk && <span style={{ color: 'var(--color-danger)', marginLeft: 8 }}>支付方式账户分配金额必须等于交易金额</span>}
+          </div>
       </Card>
 
       <Card title="交易对方（Expenses 账户）">
@@ -287,11 +287,11 @@ const TransactionDetail = () => {
           </div>
         ))}
         <Button variant="ghost" onClick={() => setExpenseRows([...expenseRows, { account: accounts.find(a => a.startsWith('Expenses:')) ?? '', amount: String(Math.max(txnAmount - expenseTotal, 0).toFixed(2)) }])} disabled={!canEditSplits}>+ 添加交易对方</Button>
-        <div className="field-row" style={{ marginTop: 8 }}>
-          <span className="field-label">已分配</span>
-          <span style={{ color: expenseOk ? 'var(--color-success)' : 'var(--color-danger)' }}>{expenseTotal.toFixed(2)} / {txnAmount.toFixed(2)}</span>
-          {!expenseOk && <span style={{ color: 'var(--color-danger)', marginLeft: 8 }}>交易对方账户分配金额必须等于交易金额</span>}
-        </div>
+          <div className="field-row" style={{ marginTop: 8, justifyContent: 'flex-end' }}>
+            <span className="field-label">已分配</span>
+            <span style={{ color: expenseOk ? 'var(--color-success)' : 'var(--color-danger)', textAlign: 'right', fontVariantNumeric: 'tabular-nums', minWidth: 140 }}>{expenseTotal.toFixed(2)} / {txnAmount.toFixed(2)}</span>
+            {!expenseOk && <span style={{ color: 'var(--color-danger)', marginLeft: 8 }}>交易对方账户分配金额必须等于交易金额</span>}
+          </div>
       </Card>
 
       <div className="result-actions" style={{ justifyContent: 'flex-start' }}>

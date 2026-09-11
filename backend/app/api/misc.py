@@ -169,6 +169,74 @@ def export_history(
     ]}
 
 
+@router.get("/exports/{record_id}")
+def export_detail(record_id: int, db: Session = Depends(get_db)):
+    """导出详情：ExportRecord + Transaction + Splits + Import 溯源链（含 Beancount 预览）"""
+    from app.models.models import RawTransaction, TransactionSplit, File as DBFile, ImportBatch
+
+    rec = db.query(ExportRecord).filter(ExportRecord.id == record_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="导出记录不存在")
+
+    txn = db.query(Transaction).filter(Transaction.id == rec.transaction_id).first()
+    txn_data = None
+    import_info = None
+    raw_data = None
+
+    if txn:
+        splits = db.query(TransactionSplit).filter(TransactionSplit.transaction_id == txn.id).all()
+        txn_data = {
+            "id": txn.id,
+            "date": txn.date,
+            "time": txn.time,
+            "merchant": txn.merchant,
+            "description": txn.description,
+            "amount": txn.amount,
+            "currency": txn.currency,
+            "direction": txn.direction,
+            "status": txn.status,
+            "payment_method": txn.payment_method,
+            "counterparty": txn.counterparty,
+            "assets": [{"account": s.account, "amount": s.amount} for s in splits if s.account.startswith("Assets:")],
+            "expenses": [{"account": s.account, "amount": s.amount} for s in splits if not s.account.startswith("Assets:")],
+        }
+
+        # Import 溯源链：Transaction → RawTransaction → File → ImportBatch
+        if txn.raw_transaction_id:
+            raw = db.query(RawTransaction).filter(RawTransaction.id == txn.raw_transaction_id).first()
+            if raw:
+                raw_data = {"row_number": raw.row_number, "raw_data_json": raw.raw_data_json}
+                db_file = db.query(DBFile).filter(DBFile.id == raw.file_id).first()
+                if db_file:
+                    batch = db.query(ImportBatch).filter(ImportBatch.id == db_file.import_batch_id).first()
+                    import_info = {
+                        "batch_id": db_file.import_batch_id,
+                        "source": batch.source_type if batch else None,
+                        "batch_status": batch.status if batch else None,
+                        "file_name": db_file.original_name,
+                        "file_sha256": db_file.sha256,
+                    }
+
+    try:
+        preview = ExportService._render(db, txn) if txn else ""
+    except Exception:
+        preview = ""
+
+    return {
+        "id": rec.id,
+        "status": rec.status,
+        "file_path": rec.file_path,
+        "file_sha256": rec.file_sha256,
+        "error_message": rec.error_message,
+        "created_at": str(rec.created_at),
+        "completed_at": str(rec.completed_at) if rec.completed_at else None,
+        "transaction": txn_data,
+        "beancount_preview": preview,
+        "import": import_info,
+        "raw_data": raw_data,
+    }
+
+
 @router.get("/ledger/reconciliation")
 def reconciliation(db: Session = Depends(get_db)):
     import os

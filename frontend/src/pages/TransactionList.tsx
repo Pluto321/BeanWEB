@@ -88,32 +88,58 @@ const TransactionList = () => {
       {error && <ErrorState message={error} onRetry={load} />}
       {!loading && !error && txns.length === 0 && <EmptyState text="暂无交易" />}
       {!loading && !error && txns.length > 0 && (
-        <table className="ui-table">
-          <thead>
-            <tr>
-              <th style={{ width: 36 }}>
-                <input type="checkbox" checked={selected.size === txns.length && txns.length > 0} onChange={toggleAll} />
-              </th>
-              <th>日期</th><th>商户</th><th>金额</th><th>状态</th><th>操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            {txns.map((t: any) => (
-              <tr key={t.id} style={t.status === 'IGNORED' ? { opacity: 0.45, textDecoration: 'line-through' } : undefined}>
-                <td>
-                  <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} disabled={t.status === 'IGNORED'} />
-                </td>
-                <td className="td-date">{t.date}</td>
-                <td className="td-strong">{t.merchant ?? '—'}</td>
-                <td className={t.direction === '收入' ? 'amount-cell td-amount-in' : 'amount-cell td-amount-out'}>
-                  {t.direction === '收入' ? '+' : '−'}{t.amount} {t.currency}
-                </td>
-                <td><Badge status={t.status} /></td>
-                <td><Link to={`/transactions/${t.id}`}>详情</Link></td>
+        <>
+          {/* 状态统计卡片 2×2 */}
+          <div className="status-grid">
+            {[
+              { key: 'REVIEW_REQUIRED', label: '待审核', color: 'var(--warning)' },
+              { key: 'POSSIBLE_DUPLICATE', label: '疑似重复', color: 'var(--warning)' },
+              { key: 'CONFIRMED', label: '已确认', color: 'var(--success)' },
+              { key: 'IGNORED', label: '已忽略', color: 'var(--color-muted, #64748b)' },
+            ].map(item => {
+              const count = item.key === ''
+                ? txns.length
+                : txns.filter(t => t.status === item.key).length;
+              return (
+                <div
+                  key={item.key}
+                  className={`stat-card ${status === item.key ? 'active' : ''}`}
+                  onClick={() => setStatus(status === item.key ? '' : item.key)}
+                >
+                  <span className="stat-card-num" style={{ color: item.color }}>{count}</span>
+                  <span className="stat-card-label">{item.label}</span>
+                </div>
+              );
+            })}
+          </div>
+
+          <table className="ui-table">
+            <thead>
+              <tr>
+                <th style={{ width: 36 }}>
+                  <input type="checkbox" checked={selected.size === txns.length && txns.length > 0} onChange={toggleAll} />
+                </th>
+                <th>日期</th><th>商户</th><th className="amount-col">金额</th><th>状态</th><th>操作</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {txns.map((t: any) => (
+                <tr key={t.id} style={t.status === 'IGNORED' ? { opacity: 0.45, textDecoration: 'line-through' } : undefined}>
+                  <td>
+                    <input type="checkbox" checked={selected.has(t.id)} onChange={() => toggle(t.id)} disabled={t.status === 'IGNORED'} />
+                  </td>
+                  <td className="td-date">{t.date}</td>
+                  <td className="td-strong">{t.merchant ?? '—'}</td>
+                  <td className={t.direction === '收入' ? 'amount-cell td-amount-in' : 'amount-cell td-amount-out'}>
+                    {t.direction === '收入' ? '+' : '−'}{t.amount} {t.currency}
+                  </td>
+                  <td><Badge status={t.status} /></td>
+                  <td><Link to={`/transactions/${t.id}`}>详情</Link></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </>
       )}
     </div>
   );
