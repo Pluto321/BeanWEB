@@ -50,11 +50,11 @@ const Dashboard = () => {
     return acc;
   }, {});
 
-  const kpis: [string | number, string, string, () => void][] = [
-    [counts['REVIEW_REQUIRED'] ?? 0, '待审核', '需要人工确认的交易', () => navigate('/transactions?status=REVIEW_REQUIRED')],
-    [counts['POSSIBLE_DUPLICATE'] ?? 0, '疑似重复', '需要处理的重复交易', () => navigate('/transactions?status=POSSIBLE_DUPLICATE')],
-    [counts['CONFIRMED'] ?? 0, '已确认', '已完成审核的交易', () => navigate('/transactions?status=CONFIRMED')],
-    [counts['IGNORED'] ?? 0, '已忽略', '被忽略的交易', () => navigate('/transactions?status=IGNORED')],
+  const kpis: { value: number; label: string; accent: string; hint: string; onClick: () => void }[] = [
+    { value: counts['REVIEW_REQUIRED'] ?? 0, label: '待审核', accent: '#d97706', hint: '需要确认', onClick: () => navigate('/transactions?status=REVIEW_REQUIRED') },
+    { value: counts['POSSIBLE_DUPLICATE'] ?? 0, label: '疑似重复', accent: '#e5484d', hint: '需要处理', onClick: () => navigate('/transactions?status=POSSIBLE_DUPLICATE') },
+    { value: counts['CONFIRMED'] ?? 0, label: '已确认', accent: '#30a46c', hint: '可导出', onClick: () => navigate('/transactions?status=CONFIRMED') },
+    { value: counts['IGNORED'] ?? 0, label: '已忽略', accent: '#64748b', hint: '不导出', onClick: () => navigate('/transactions?status=IGNORED') },
   ];
 
   const recentTxns = [...txns]
@@ -75,9 +75,9 @@ const Dashboard = () => {
       </div>
 
       <div className="card-grid">
-        {kpis.map(([value, label, , onClick]) => (
-          <div key={label} onClick={onClick} style={{ cursor: 'pointer' }}>
-            <KpiCard value={value} label={label} />
+        {kpis.map(k => (
+          <div key={k.label} onClick={k.onClick} style={{ cursor: 'pointer' }}>
+            <KpiCard value={k.value} label={k.label} accent={k.accent} hint={k.hint} />
           </div>
         ))}
       </div>

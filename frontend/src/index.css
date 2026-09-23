@@ -180,6 +180,41 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.3px; }
 .btn-danger:hover { background: var(--danger-bg); }
 
 /* ===== KPI stat cards ===== */
+.kpi-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 18px 20px;
+  transition: 0.15s;
+}
+
+.kpi-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-md); }
+
+.kpi-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+
+.kpi-number {
+  font-size: 34px;
+  font-weight: 700;
+  letter-spacing: -1px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+
+.kpi-label {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-muted);
+}
+
+.kpi-hint {
+  font-size: 11px;
+  color: var(--text-faint);
+}
+
 .stats-row {
     display: grid;
     grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));

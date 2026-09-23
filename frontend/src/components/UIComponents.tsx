@@ -7,10 +7,13 @@ export const Card = ({ title, children, className = '' }: { title?: string; chil
   </div>
 );
 
-export const KpiCard = ({ value, label }: { value: string | number; label: string }) => (
-  <div className="card kpi-card">
-    <div className="kpi-number">{value}</div>
-    <div className="kpi-label">{label}</div>
+export const KpiCard = ({ value, label, accent = 'var(--primary)', hint }: { value: string | number; label: string; accent?: string; hint?: string }) => (
+  <div className="card kpi-card" style={{ borderLeft: `4px solid ${accent}` }}>
+    <div className="kpi-top">
+      <span className="kpi-label">{label}</span>
+      {hint && <span className="kpi-hint">{hint}</span>}
+    </div>
+    <div className="kpi-number" style={{ color: accent }}>{value}</div>
   </div>
 );
 
