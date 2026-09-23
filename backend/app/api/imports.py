@@ -120,6 +120,7 @@ async def analyze_import(file: UploadFile = File(...), db: Session = Depends(get
         analysis = _analyze_rows(db, importer, raw_data_list, db_file)
 
         batch.status = BATCH_STATUS_ANALYZED
+        batch.stats_json = analysis["stats"]
         db.commit()
 
         return {
@@ -224,6 +225,7 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
     batch.status = BATCH_STATUS_COMPLETED
     from datetime import datetime
     batch.completed_at = datetime.now()
+    batch.stats_json = stats
     db.commit()
 
     return {"import_id": batch.id, "filename": batch.filename, "status": "COMPLETED", **stats}
@@ -250,6 +252,7 @@ def import_history(
             "error_message": b.error_message,
             "started_at": str(b.started_at),
             "completed_at": str(b.completed_at) if b.completed_at else None,
+            "stats": b.stats_json,
         }
         for b in rows
     ]}
@@ -261,14 +264,15 @@ def import_detail(batch_id: int, db: Session = Depends(get_db)):
     if not batch:
         raise HTTPException(status_code=404, detail="Import batch not found")
     db_file = db.query(DBFile).filter(DBFile.import_batch_id == batch_id).first()
-    txn_ids = []
+    txns = []
     if db_file:
-        txn_ids = [
-            r[0] for r in db.query(Transaction.id)
+        txns = (
+            db.query(Transaction)
             .join(RawTransaction, Transaction.raw_transaction_id == RawTransaction.id)
             .filter(RawTransaction.file_id == db_file.id)
+            .order_by(RawTransaction.row_number)
             .all()
-        ]
+        )
     return {
         "id": batch.id,
         "filename": batch.filename,
@@ -277,12 +281,25 @@ def import_detail(batch_id: int, db: Session = Depends(get_db)):
         "error_message": batch.error_message,
         "started_at": str(batch.started_at),
         "completed_at": str(batch.completed_at) if batch.completed_at else None,
+        "stats": batch.stats_json,
         "file": {
             "original_name": db_file.original_name,
             "sha256": db_file.sha256,
             "size": db_file.size,
         } if db_file else None,
-        "transaction_ids": txn_ids,
+        "transactions": [
+            {
+                "id": t.id,
+                "date": t.date,
+                "merchant": t.merchant,
+                "amount": t.amount,
+                "currency": t.currency,
+                "direction": t.direction,
+                "status": t.status,
+            }
+            for t in txns
+        ],
+        "transaction_count": len(txns),
     }
 
 

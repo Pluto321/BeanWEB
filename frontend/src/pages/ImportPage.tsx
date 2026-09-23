@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 import { Badge, Button, Card, ErrorState, LoadingState } from '../components/UIComponents';
@@ -24,6 +24,24 @@ type CommitResult = {
   review_required: number;
 };
 
+type DefaultsConfig = {
+  default_assets_account: string;
+  default_expenses_account: string;
+  source_defaults: Record<string, string>;
+};
+
+const SOURCE_LABEL: Record<string, string> = {
+  ALIPAY: '支付宝',
+  BANK: '银行',
+  WECHAT: '微信支付',
+};
+
+const REASON_LABEL: Record<string, string> = {
+  SOURCE_ID: '交易订单号相同',
+  RAW_HASH: '原始数据相同',
+  CANONICAL_FINGERPRINT: '交易特征相同',
+};
+
 const fmtCNY = (v: string | number) => {
   const n = typeof v === 'string' ? parseFloat(v) : v;
   return Number.isFinite(n) ? `¥${n.toFixed(2)}` : String(v);
@@ -35,9 +53,14 @@ const ImportPage = () => {
   const [phase, setPhase] = useState<'select' | 'analyzing' | 'preview' | 'committing' | 'done'>('select');
   const [analysis, setAnalysis] = useState<AnalyzeResult | null>(null);
   const [result, setResult] = useState<CommitResult | null>(null);
+  const [defaults, setDefaults] = useState<DefaultsConfig | null>(null);
   const [error, setError] = useState('');
   const [showInvalid, setShowInvalid] = useState(false);
   const [showDup, setShowDup] = useState(false);
+
+  useEffect(() => {
+    apiFetch<DefaultsConfig>('/api/config/defaults').then(setDefaults).catch(() => { /* 非关键信息，失败静默 */ });
+  }, []);
 
   const reset = () => {
     setFile(null);
@@ -82,6 +105,9 @@ const ImportPage = () => {
   };
 
   const s = analysis?.stats;
+  const defaultAccount = analysis && defaults
+    ? defaults.source_defaults[analysis.parser.toUpperCase()] ?? defaults.default_assets_account
+    : null;
 
   return (
     <div>
@@ -120,7 +146,10 @@ const ImportPage = () => {
         <>
           <Card title="② 导入预览">
             <div className="field-row"><span className="field-label">文件</span><span>{analysis.filename}</span></div>
-            <div className="field-row"><span className="field-label">识别来源</span><span>{analysis.parser}</span></div>
+            <div className="field-row"><span className="field-label">识别来源</span><span>{SOURCE_LABEL[analysis.parser.toUpperCase()] ?? analysis.parser}</span></div>
+            {defaultAccount && (
+              <div className="field-row"><span className="field-label">默认账户</span><span>{defaultAccount}（可在审核阶段修改）</span></div>
+            )}
             <div className="field-row">
               <span className="field-label">状态</span>
               <span>✓ 文件解析成功</span>
@@ -195,21 +224,63 @@ const ImportPage = () => {
 
       {/* 阶段 6：导入结果 */}
       {phase === 'done' && result && (
-        <Card title="③ 导入完成 ✓">
-          <div className="field-row"><span className="field-label">文件</span><span>{result.filename}</span></div>
-          <div className="card-grid" style={{ marginTop: 12 }}>
-            <Card><div className="kpi-number">{result.total}</div><div className="kpi-label">总记录</div></Card>
-            <Card><div className="kpi-number" style={{ color: 'var(--color-success)' }}>{result.created}</div><div className="kpi-label">成功导入</div></Card>
-            <Card><div className="kpi-number" style={{ color: 'var(--color-muted)' }}>{result.existing}</div><div className="kpi-label">已存在</div></Card>
-            <Card><div className="kpi-number" style={{ color: 'var(--color-warning)' }}>{result.possible_duplicate}</div><div className="kpi-label">可能重复</div></Card>
-            <Card><div className="kpi-number">{result.review_required}</div><div className="kpi-label">待审核</div></Card>
-          </div>
-          <div className="result-actions" style={{ justifyContent: 'flex-start', marginTop: 16 }}>
-            <Button onClick={() => navigate(`/import-history`)}>查看本次导入</Button>
-            <Button onClick={() => navigate('/transactions?status=REVIEW_REQUIRED')} disabled={result.review_required === 0}>进入待审核交易</Button>
-            <Button variant="ghost" onClick={reset}>继续导入</Button>
-          </div>
-        </Card>
+        <>
+          <Card title="③ 导入完成 ✓">
+            <div className="field-row"><span className="field-label">文件</span><span>{result.filename}</span></div>
+            <div className="card-grid" style={{ marginTop: 12 }}>
+              <Card><div className="kpi-number">{result.total}</div><div className="kpi-label">总记录</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-success)' }}>{result.created}</div><div className="kpi-label">新增</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-muted)' }}>{result.existing}</div><div className="kpi-label">重复</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-warning)' }}>{result.possible_duplicate}</div><div className="kpi-label">可能重复</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-danger)' }}>{(s?.invalid ?? 0)}</div><div className="kpi-label">异常</div></Card>
+              <Card><div className="kpi-number">{result.review_required}</div><div className="kpi-label">待审核</div></Card>
+            </div>
+            <div className="result-actions" style={{ justifyContent: 'flex-start', marginTop: 16 }}>
+              <Button onClick={() => navigate(`/import-history?batch=${result.import_id}`)}>查看导入结果</Button>
+              <Button onClick={() => navigate('/transactions?status=REVIEW_REQUIRED')} disabled={result.review_required === 0}>处理待审核交易</Button>
+              <Button variant="ghost" onClick={() => navigate('/import-history')}>查看导入历史</Button>
+              <Button variant="ghost" onClick={reset}>继续导入</Button>
+            </div>
+          </Card>
+
+          {analysis && analysis.duplicates.length > 0 && (
+            <Card title={`⚠ 可能重复（${analysis.duplicates.length}）`}>
+              <table className="ui-table">
+                <thead><tr><th>行号</th><th>日期</th><th>商户</th><th>金额</th><th>原因</th></tr></thead>
+                <tbody>
+                  {analysis.duplicates.map(d => (
+                    <tr key={d.row_number}>
+                      <td>{d.row_number}</td>
+                      <td className="td-date">{d.date}</td>
+                      <td className="td-strong">{d.merchant}</td>
+                      <td className="amount-cell">{fmtCNY(d.amount)}</td>
+                      <td className="td-muted">{REASON_LABEL[d.reason] ?? d.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+
+          {analysis && analysis.invalid_rows.length > 0 && (
+            <Card title={`× 无法解析（${analysis.invalid_rows.length}）`}>
+              <table className="ui-table">
+                <thead><tr><th>行号</th><th>错误</th><th>原始数据</th></tr></thead>
+                <tbody>
+                  {analysis.invalid_rows.map(r => (
+                    <tr key={r.row_number}>
+                      <td>{r.row_number}</td>
+                      <td className="td-muted">{r.error}</td>
+                      <td className="td-muted" style={{ maxWidth: 380, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        {Object.entries(r.raw).filter(([, v]) => v).map(([k, v]) => `${k}=${v}`).join(' | ')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </Card>
+          )}
+        </>
       )}
     </div>
   );

@@ -27,6 +27,7 @@ class ImportBatch(Base):
     started_at = Column(DateTime, default=func.now())
     completed_at = Column(DateTime)
     error_message = Column(String)
+    stats_json = Column(JSON, nullable=True)
 
 class RawTransaction(Base):
     __tablename__ = "raw_transactions"

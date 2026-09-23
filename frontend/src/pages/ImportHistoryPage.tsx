@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState } from '../components/UIComponents';
 
@@ -11,11 +11,18 @@ const STATUS_MAP: Record<string, { text: string; badge: string }> = {
   IMPORTED: { text: '已导入', badge: 'badge-success' },
 };
 
+const fmtCNY = (v: string | number) => {
+  const n = typeof v === 'string' ? parseFloat(v) : v;
+  return Number.isFinite(n) ? `¥${n.toFixed(2)}` : String(v);
+};
+
 const ImportHistoryPage = () => {
+  const [searchParams] = useSearchParams();
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [detail, setDetail] = useState<any>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -28,21 +35,32 @@ const ImportHistoryPage = () => {
 
   useEffect(() => { load(); }, [load]);
 
-  const openDetail = async (id: number) => {
+  const openDetail = useCallback(async (id: number) => {
+    setDetailLoading(true);
     try {
       const d = await apiFetch<any>(`/api/imports/${id}`);
       setDetail(d);
     } catch (e: any) {
       setError(e.message);
+    } finally {
+      setDetailLoading(false);
     }
-  };
+  }, []);
+
+  // 支持 /import-history?batch=N 深链：加载后自动打开该批次详情
+  useEffect(() => {
+    const batchParam = searchParams.get('batch');
+    if (batchParam && !loading) {
+      openDetail(Number(batchParam));
+    }
+  }, [searchParams, loading, openDetail]);
 
   return (
     <div>
       <div className="page-header">
         <div>
           <h2 className="page-title">导入历史</h2>
-          <p className="page-sub">{data?.total ?? 0} 个批次 · 点击查看批次详情与产生的交易</p>
+          <p className="page-sub">{data?.total ?? 0} 个批次 · 点击详情查看 Raw → Transaction 追踪链</p>
         </div>
       </div>
 
@@ -53,20 +71,25 @@ const ImportHistoryPage = () => {
 
       {!loading && !error && data && data.items.length > 0 && (
         <table className="ui-table">
-          <thead><tr><th>批次</th><th>文件</th><th>来源</th><th>状态</th><th>时间</th><th>操作</th></tr></thead>
+          <thead>
+            <tr><th>批次</th><th>文件</th><th>来源</th><th>状态</th><th className="amount-col">总数</th><th className="amount-col">新增</th><th className="amount-col">重复</th><th className="amount-col">异常</th><th>时间</th><th>操作</th></tr>
+          </thead>
           <tbody>
             {data.items.map((b: any) => {
               const st = STATUS_MAP[b.status] ?? { text: b.status, badge: 'badge-muted' };
+              const s = b.stats;
               return (
-                <tr key={b.id}>
+                <tr key={b.id} style={detail?.id === b.id ? { background: 'var(--primary-bg)' } : undefined}>
                   <td>{b.id}</td>
                   <td className="td-strong">{b.filename ?? '—'}</td>
                   <td>{b.source_type}</td>
                   <td><span className={`badge ${st.badge}`}>{st.text}</span></td>
+                  <td className="amount-cell">{s ? s.total : '—'}</td>
+                  <td className="amount-cell" style={{ color: 'var(--color-success)' }}>{s ? s.created ?? s.new : '—'}</td>
+                  <td className="amount-cell" style={{ color: 'var(--color-muted)' }}>{s ? s.existing : '—'}</td>
+                  <td className="amount-cell" style={{ color: 'var(--color-danger)' }}>{s ? s.invalid : '—'}</td>
                   <td className="td-date">{b.started_at ? new Date(b.started_at).toLocaleString() : '—'}</td>
-                  <td>
-                    <Link to="#" onClick={e => { e.preventDefault(); openDetail(b.id); }}>详情</Link>
-                  </td>
+                  <td><Link to="#" onClick={e => { e.preventDefault(); openDetail(b.id); }}>详情</Link></td>
                 </tr>
               );
             })}
@@ -74,29 +97,67 @@ const ImportHistoryPage = () => {
         </table>
       )}
 
-      {detail && (
+      {detailLoading && <LoadingState text="正在加载批次详情…" />}
+
+      {detail && !detailLoading && (
         <Card title={`批次 ${detail.id} · ${detail.filename ?? ''}`}>
-          <div className="field-row"><span className="field-label">状态</span><span>{detail.status}</span></div>
+          <div className="field-row"><span className="field-label">状态</span><Badge status={detail.status} /></div>
+          {detail.stats && (
+            <div className="card-grid" style={{ marginTop: 8 }}>
+              <Card><div className="kpi-number">{detail.stats.total}</div><div className="kpi-label">总记录</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-success)' }}>{detail.stats.created ?? detail.stats.new}</div><div className="kpi-label">新增</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-muted)' }}>{detail.stats.existing}</div><div className="kpi-label">重复</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-warning)' }}>{detail.stats.possible_duplicate}</div><div className="kpi-label">可能重复</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-danger)' }}>{detail.stats.invalid}</div><div className="kpi-label">异常</div></Card>
+            </div>
+          )}
+
           {detail.file && (
             <>
+              <div className="field-row"><span className="field-label">文件</span><span>{detail.file.original_name}</span></div>
               <div className="field-row"><span className="field-label">SHA256</span><span className="td-muted" style={{ wordBreak: 'break-all' }}>{detail.file.sha256}</span></div>
               <div className="field-row"><span className="field-label">大小</span><span>{(detail.file.size / 1024).toFixed(1)} KB</span></div>
             </>
           )}
           {detail.error_message && <div className="field-row"><span className="field-label">错误</span><span style={{ color: 'var(--color-danger)' }}>{detail.error_message}</span></div>}
-          <div className="field-row"><span className="field-label">产生交易</span><span>{detail.transaction_ids.length} 笔</span></div>
-          {detail.transaction_ids.length > 0 && (
-            <div style={{ marginTop: 8 }}>
-              <Link to="/transactions">查看交易明细 →</Link>
-            </div>
-          )}
+
+          {/* Raw → Transaction 追踪链 */}
+          <Card title={`本批次产生的交易（${detail.transaction_count} 笔）`}>
+            {detail.transactions && detail.transactions.length > 0 ? (
+              <table className="ui-table">
+                <thead><tr><th>日期</th><th>商户</th><th className="amount-col">金额</th><th>方向</th><th>状态</th><th>操作</th></tr></thead>
+                <tbody>
+                  {detail.transactions.map((t: any) => (
+                    <tr key={t.id}>
+                      <td className="td-date">{t.date}</td>
+                      <td className="td-strong">{t.merchant ?? '—'}</td>
+                      <td className="amount-cell">{fmtCNY(t.amount)}</td>
+                      <td>{t.direction === '收入' ? '收入' : '支出'}</td>
+                      <td><Badge status={t.status} /></td>
+                      <td><Link to={`/transactions/${t.id}`}>详情</Link></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
+              <p className="page-sub">该批次尚未产生交易（分析后未确认导入，或全部为重复/异常）</p>
+            )}
+          </Card>
+
           <div className="result-actions" style={{ justifyContent: 'flex-start', marginTop: 12 }}>
+            <Button onClick={() => navigateReview(detail.id)} disabled={!detail.transaction_count}>处理待审核交易</Button>
             <Button variant="ghost" onClick={() => setDetail(null)}>关闭</Button>
           </div>
         </Card>
       )}
     </div>
   );
+};
+
+// 跳转审核：保持简单，直接去交易页
+const navigateReview = (_batchId: number) => {
+  window.location.hash = '';
+  window.location.assign('/transactions?status=REVIEW_REQUIRED');
 };
 
 export default ImportHistoryPage;

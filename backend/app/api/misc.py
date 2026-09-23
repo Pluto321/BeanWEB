@@ -9,8 +9,23 @@ from app.db.session import get_db
 from app.models.models import Account, AuditLog, ExportRecord, Rule, Transaction
 from app.services.review import AuditService
 from app.services.export_service import ExportService
+from app.core.config import settings
 
 router = APIRouter(prefix="/api")
+
+
+@router.get("/config/defaults")
+def config_defaults():
+    """只读：返回来源对应的默认账户（不写入任何数据）"""
+    return {
+        "default_assets_account": settings.DEFAULT_ASSETS_ACCOUNT,
+        "default_expenses_account": settings.DEFAULT_EXPENSES_ACCOUNT,
+        "default_income_account": settings.DEFAULT_INCOME_ACCOUNT,
+        "source_defaults": {
+            "ALIPAY": settings.DEFAULT_ASSETS_ACCOUNT,
+            "BANK": settings.DEFAULT_ASSETS_ACCOUNT,
+        },
+    }
 
 
 @router.get("/accounts")
