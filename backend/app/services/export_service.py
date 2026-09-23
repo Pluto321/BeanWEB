@@ -66,14 +66,14 @@ class ExportService:
             record.status = "EXPORTED"
             record.completed_at = datetime.now()
 
-            AuditLog(
+            db.add(AuditLog(
                 entity_type="export",
                 entity_id=record.id,
                 action="EXPORT",
                 old_value=None,
                 new_value={"file": fragment_path, "transaction_id": txn_id},
                 user_note="Export confirmed transaction",
-            )
+            ))
         except Exception as e:
             record.status = "FAILED"
             record.error_message = str(e)
