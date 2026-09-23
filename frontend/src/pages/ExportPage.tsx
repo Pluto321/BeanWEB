@@ -15,8 +15,15 @@ const ExportPage = () => {
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    apiFetch<any[]>('/api/transactions?status=CONFIRMED')
-      .then(setCandidates)
+    Promise.all([
+      apiFetch<any[]>('/api/transactions?status=CONFIRMED'),
+      apiFetch<any>('/api/exports?status=EXPORTED&page_size=500'),
+    ])
+      .then(([txns, exports]) => {
+        // 已导出过的交易不再出现在待导出列表（避免用户重复导出全部被 SKIPPED、误以为失败）
+        const exportedIds = new Set<number>((exports.items ?? []).map((e: any) => e.transaction_id));
+        setCandidates(txns.filter((t: any) => !exportedIds.has(t.id)));
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
   }, []);
@@ -63,7 +70,7 @@ const ExportPage = () => {
       {!loading && !error && (
         <>
           {candidates.length === 0 ? (
-            <EmptyState text="暂无已确认的交易，请先在交易明细中确认" />
+            <EmptyState text="没有待导出的交易（已确认的交易都已导出，或请先在交易明细中确认新交易）" />
           ) : (
             <>
               <div style={{ marginBottom: 16, display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
