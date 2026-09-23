@@ -3,6 +3,7 @@ import os
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException
+from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db
@@ -250,6 +251,30 @@ def export_detail(record_id: int, db: Session = Depends(get_db)):
         "import": import_info,
         "raw_data": raw_data,
     }
+
+
+@router.get("/exports/{record_id}/download")
+def export_download(record_id: int, db: Session = Depends(get_db)):
+    """下载导出的 .bean 文件（流式返回，浏览器触发下载）"""
+    rec = db.query(ExportRecord).filter(ExportRecord.id == record_id).first()
+    if not rec:
+        raise HTTPException(status_code=404, detail="导出记录不存在")
+    if rec.status != "EXPORTED":
+        raise HTTPException(status_code=400, detail="该记录未成功导出，无法下载")
+    if not rec.file_path or not os.path.exists(rec.file_path):
+        raise HTTPException(status_code=404, detail="导出文件已不存在于服务器")
+
+    # 校验完整性：文件内容与记录的 sha256 一致才允许下载
+    actual_sha = hashlib.sha256(open(rec.file_path, "rb").read()).hexdigest()
+    if actual_sha != rec.file_sha256:
+        raise HTTPException(status_code=409, detail="文件校验失败：内容与导出记录不一致（可能已被修改）")
+
+    filename = os.path.basename(rec.file_path)
+    return FileResponse(
+        rec.file_path,
+        media_type="application/x-beancount",
+        filename=f"beanweb_export_{record_id}_{filename}",
+    )
 
 
 @router.get("/ledger/reconciliation")

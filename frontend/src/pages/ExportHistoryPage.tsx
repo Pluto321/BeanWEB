@@ -118,7 +118,19 @@ const ExportHistoryPage = () => {
                   {r.file_path ? r.file_path.split(/[\\/]/).slice(-2).join('/') : '—'}
                 </td>
                 <td className="td-date">{r.completed_at ? new Date(r.completed_at).toLocaleString() : '—'}</td>
-                <td><Link2 onClick={() => openDetail(r.id)}>详情</Link2></td>
+                <td>
+                  <Link2 onClick={() => openDetail(r.id)}>详情</Link2>
+                  {r.status === 'EXPORTED' && (
+                    <>
+                      {' | '}
+                      <a
+                        href={`/api/exports/${r.id}/download`}
+                        style={{ color: 'var(--primary)' }}
+                        title={r.file_sha256 ? '下载导出文件' : undefined}
+                      >下载</a>
+                    </>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
@@ -144,6 +156,11 @@ const ExportHistoryPage = () => {
                     <div className="field-row"><span className="field-label">完成时间</span><span>{detail.completed_at ? new Date(detail.completed_at).toLocaleString() : '—'}</span></div>
                     {detail.error_message && <div className="field-row"><span className="field-label">错误</span><span style={{ color: 'var(--danger)' }}>{detail.error_message}</span></div>}
                     <div className="field-row"><span className="field-label">文件</span><span className="td-muted" style={{ wordBreak: 'break-all' }}>{detail.file_path || '—'}</span></div>
+                    {detail.status === 'EXPORTED' && (
+                      <div style={{ marginTop: 12 }}>
+                        <Button onClick={() => { window.location.href = `/api/exports/${detail.id}/download`; }}>下载 .bean 文件</Button>
+                      </div>
+                    )}
                   </Card>
 
                   <Card title="来源（导入信息）">
