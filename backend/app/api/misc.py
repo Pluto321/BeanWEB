@@ -32,7 +32,10 @@ def config_defaults():
 @router.get("/accounts")
 def list_accounts(db: Session = Depends(get_db)):
     accounts = db.query(Account).order_by(Account.name).all()
-    return [a.name for a in accounts]
+    return [
+        {"name": a.name, "aliases": a.aliases or [], "open_date": a.open_date}
+        for a in accounts
+    ]
 
 
 @router.post("/accounts")
@@ -44,10 +47,27 @@ def create_account(data: dict, db: Session = Depends(get_db)):
         raise HTTPException(status_code=400, detail="账户名不合法，需至少包含类型前缀，如 Assets:Bank")
     if db.query(Account).filter(Account.name == name).first():
         raise HTTPException(status_code=409, detail="账户已存在")
-    account = Account(name=name, open_date=datetime.now().strftime("%Y-%m-%d"))
+    aliases = [str(a).strip() for a in (data.get("aliases") or []) if str(a).strip()]
+    account = Account(name=name, open_date=datetime.now().strftime("%Y-%m-%d"), aliases=aliases)
     db.add(account)
     db.commit()
     return {"status": "success", "name": name}
+
+
+@router.patch("/accounts/{name}")
+def update_account(name: str, data: dict, db: Session = Depends(get_db)):
+    """修改账户（目前支持编辑 aliases：收/付款方式关键词，用于导入时自动匹配支付账户）"""
+    account = db.query(Account).filter(Account.name == name).first()
+    if not account:
+        raise HTTPException(status_code=404, detail="账户不存在")
+    if "aliases" in data:
+        aliases = [str(a).strip() for a in (data.get("aliases") or []) if str(a).strip()]
+        old = account.aliases or []
+        account.aliases = aliases
+        AuditService.log_change(db, "account", account.id, "UPDATE_ALIASES",
+                                {"aliases": old}, {"aliases": aliases}, "Update payment method aliases")
+    db.commit()
+    return {"status": "success", "name": name, "aliases": account.aliases or []}
 
 
 @router.get("/rules")

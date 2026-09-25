@@ -31,9 +31,10 @@ const TransactionDetail = () => {
       .then(([t, accs]) => {
         setTxn(t);
         setAccounts(accs);
-        const all: SplitRow[] = (t.splits ?? []).map((s: any) => ({ account: s.account, amount: s.amount }));
-        setPaymentRows(all.filter(s => s.account.startsWith('Assets:')));
-        setExpenseRows(all.filter(s => !s.account.startsWith('Assets:')));
+        // 优先按 role 区分支付/分类账户；历史数据无 role 时按 Assets: 前缀推断
+        const all: { account: string; amount: string; role?: string }[] = (t.splits ?? []).map((s: any) => ({ account: s.account, amount: s.amount, role: s.role }));
+        setPaymentRows(all.filter((s: { account: string; role?: string }) => s.role ? s.role === 'payment' : s.account.startsWith('Assets:')).map((s: { account: string; amount: string }) => ({ account: s.account, amount: s.amount })));
+        setExpenseRows(all.filter((s: { account: string; role?: string }) => s.role ? s.role !== 'payment' : !s.account.startsWith('Assets:')).map((s: { account: string; amount: string }) => ({ account: s.account, amount: s.amount })));
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -49,6 +50,21 @@ const TransactionDetail = () => {
       navigate('/transactions');
     } catch (e: any) {
       setActionError(e.message);
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const doDelete = async () => {
+    setActing(true);
+    setActionError('');
+    try {
+      await apiFetch(`/api/transactions/${id}`, { method: 'DELETE' });
+      navigate('/transactions');
+    } catch (e: any) {
+      setActionError(e.message);
+      setConfirmDelete(false);
     } finally {
       setActing(false);
     }
@@ -298,6 +314,16 @@ const TransactionDetail = () => {
         <Button onClick={saveSplits} disabled={acting || !allocationValid || !canEditSplits}>保存账户分配</Button>
         <Button onClick={() => doAction('confirm')} disabled={acting || txn.status === 'CONFIRMED' || !allocationValid}>确认</Button>
         <Button variant="danger" onClick={() => doAction('ignore')} disabled={acting || txn.status === 'IGNORED'}>跳过（不导出）</Button>
+        {!confirmDelete && (
+          <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={acting}>删除…</Button>
+        )}
+        {confirmDelete && (
+          <>
+            <span style={{ color: 'var(--danger)', fontSize: 13 }}>确认永久删除该交易？（原始导入数据会保留，但交易及其分片将被删除，不可恢复）</span>
+            <Button variant="danger" onClick={doDelete} disabled={acting}>确认删除</Button>
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>取消</Button>
+          </>
+        )}
         <Button variant="ghost" onClick={() => navigate('/transactions')}>返回列表</Button>
       </div>
       {txn.status === 'CONFIRMED' && (

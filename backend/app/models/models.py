@@ -68,6 +68,7 @@ class TransactionSplit(Base):
     transaction_id = Column(Integer, ForeignKey("transactions.id"), nullable=False)
     account = Column(String, nullable=False)
     amount = Column(String, nullable=False)
+    role = Column(String, default="expense")  # expense=分类账户 / payment=支付账户
     transaction = relationship("Transaction", back_populates="splits")
 
 class AuditLog(Base):
@@ -122,4 +123,5 @@ class Account(Base):
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False, unique=True)
     open_date = Column(String, nullable=False)
+    aliases = Column(JSON, nullable=True)  # 收/付款方式关键词列表，导入时用于自动匹配
     created_at = Column(DateTime, default=func.now())

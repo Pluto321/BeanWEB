@@ -9,10 +9,30 @@ from app.services.storage import StorageService
 from app.services.importer import ImporterRegistry
 from app.services.deduplication import DeduplicationService
 from app.services.rule_service import RuleService
+from app.models.models import Account
 import app.services.alipay_importer  # noqa: F401  注册内置 Importer
 
 router = APIRouter(prefix="/api/imports")
 storage = StorageService()
+
+
+def match_payment_account(db: Session, payment_method: str | None) -> str | None:
+    """按收/付款方式文本与账户 aliases（及账户名本身）模糊匹配 Assets 账户。
+    返回最匹配的账户名；无匹配返回 None（由默认账户兜底）。"""
+    if not payment_method:
+        return None
+    text = payment_method.lower()
+    best: tuple[int, str] | None = None
+    accounts = db.query(Account).filter(Account.name.startswith("Assets:")).all()
+    for acc in accounts:
+        candidates = [acc.name.lower()] + [str(a).lower() for a in (acc.aliases or [])]
+        for kw in candidates:
+            if kw and kw in text:
+                # 关键词越长越具体，优先
+                if best is None or len(kw) > best[0]:
+                    best = (len(kw), acc.name)
+                break
+    return best[1] if best else None
 
 BATCH_STATUS_ANALYZED = "PENDING_ANALYZED"
 BATCH_STATUS_COMPLETED = "COMPLETED"
@@ -213,11 +233,23 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
         )
         db.add(txn)
         db.flush()
+
+        # 支付账户：按收/付款方式自动匹配 Assets 账户（账户管理 aliases），失败由导出阶段默认账户兜底
+        payment_account = match_payment_account(db, norm.payment_method)
+
         db.add(TransactionSplit(
             transaction_id=txn.id,
             account=actions.get("account", "Expenses:Uncategorized"),
             amount=str(norm.amount),
+            role="expense",
         ))
+        if payment_account:
+            db.add(TransactionSplit(
+                transaction_id=txn.id,
+                account=payment_account,
+                amount=str(-norm.amount) if norm.direction != "收入" else str(norm.amount),
+                role="payment",
+            ))
         if review_required_status == "REVIEW_REQUIRED":
             stats["review_required"] += 1
         stats["created"] += 1
@@ -364,11 +396,20 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
             )
             db.add(txn)
             db.flush()
+            payment_account = match_payment_account(db, norm.payment_method)
             db.add(TransactionSplit(
                 transaction_id=txn.id,
                 account=actions.get("account", "Expenses:Uncategorized"),
                 amount=str(norm.amount),
+                role="expense",
             ))
+            if payment_account:
+                db.add(TransactionSplit(
+                    transaction_id=txn.id,
+                    account=payment_account,
+                    amount=str(-norm.amount) if norm.direction != "收入" else str(norm.amount),
+                    role="payment",
+                ))
             if status == "REVIEW_REQUIRED":
                 stats["review_required"] += 1
             stats["created"] += 1

@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
-from app.models.models import Transaction, TransactionSplit, AuditLog
-from app.services.review import ReviewService
+from app.models.models import Transaction, TransactionSplit, AuditLog, ExportRecord
+from app.services.review import ReviewService, AuditService
 from typing import List, Optional
 
 router = APIRouter(prefix="/api/transactions")
@@ -124,6 +124,7 @@ def replace_splits(txn_id: int, data: dict, db: Session = Depends(get_db)):
                 transaction_id=txn.id,
                 account=s["account"],
                 amount=s["amount"],
+                role=s.get("role", "expense"),
             ))
         db.commit()
         return {"status": "success", "splits": final_splits}
@@ -180,6 +181,28 @@ def confirm_transaction(txn_id: int, db: Session = Depends(get_db)):
 @router.post("/{txn_id}/ignore")
 def ignore_transaction(txn_id: int, db: Session = Depends(get_db)):
     ReviewService.set_status(db, txn_id, "IGNORED", "Ignored by user")
+    return {"status": "success"}
+
+
+@router.delete("/{txn_id}")
+def delete_transaction(txn_id: int, db: Session = Depends(get_db)):
+    """永久删除交易（含分片）。已导出的交易不允许删除。
+    RawTransaction 保留（不可变原则），仅删除业务层 Transaction。"""
+    txn = db.query(Transaction).filter(Transaction.id == txn_id).first()
+    if not txn:
+        raise HTTPException(status_code=404, detail="Transaction not found")
+
+    has_export = db.query(ExportRecord).filter(
+        ExportRecord.transaction_id == txn_id, ExportRecord.status == "EXPORTED"
+    ).first()
+    if has_export:
+        raise HTTPException(status_code=409, detail="已导出的交易不能删除")
+
+    old = {"merchant": txn.merchant, "amount": txn.amount, "date": txn.date, "status": txn.status}
+    db.query(TransactionSplit).filter(TransactionSplit.transaction_id == txn_id).delete()
+    AuditService.log_change(db, "transaction", txn_id, "DELETE", old, None, "Transaction deleted by user")
+    db.delete(txn)
+    db.commit()
     return {"status": "success"}
 
 

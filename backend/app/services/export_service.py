@@ -101,19 +101,31 @@ class ExportService:
         total = sum(Decimal(s.amount) for s in splits)
         direction = getattr(txn, "direction", None) or "支出"
 
-        # 区分用户显式选择的支付账户（Assets）与分类账户
-        payment_splits = [(s.account, Decimal(s.amount)) for s in splits if s.account.startswith("Assets:")]
-        category_splits = [(s.account, Decimal(s.amount)) for s in splits if not s.account.startswith("Assets:")]
+        # 优先按 role 字段区分（payment/expense）；历史数据无 role 时按 Assets: 前缀推断
+        def _is_payment(s) -> bool:
+            if getattr(s, "role", None):
+                return s.role == "payment"
+            return s.account.startswith("Assets:")
+
+        payment_splits = [(s.account, Decimal(s.amount)) for s in splits if _is_payment(s)]
+        category_splits = [(s.account, Decimal(s.amount)) for s in splits if not _is_payment(s)]
 
         if not payment_splits:
             payment_splits = [(settings.DEFAULT_ASSETS_ACCOUNT, total)]
 
+        # 支付账户若已带符号（导入自动匹配生成的 payment split 支出为负、收入为正），
+        # 则直接使用；仅当金额与交易金额同号（未带符号的正数历史数据）时才按方向取负
+        def _sign_payment(val: Decimal) -> Decimal:
+            if val < 0:
+                return val  # 已带负号（支出）
+            return val if direction == "收入" else -val
+
         if direction == "收入":
             signed = [(acc, -val) for acc, val in category_splits]
-            signed += [(acc, val) for acc, val in payment_splits]
+            signed += [(acc, _sign_payment(val)) for acc, val in payment_splits]
         else:
             signed = [(acc, val) for acc, val in category_splits]
-            signed += [(acc, -val) for acc, val in payment_splits]
+            signed += [(acc, _sign_payment(val)) for acc, val in payment_splits]
 
         for acc, val in signed:
             lines.append(f'  {acc:<32} {val:>12} {txn.currency}')
