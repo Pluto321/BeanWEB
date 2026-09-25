@@ -170,6 +170,19 @@ def export_one(txn_id: int, db: Session = Depends(get_db)):
         raise HTTPException(status_code=409 if "already exported" in msg else 400, detail=msg)
 
 
+@router.post("/transactions/{txn_id}/re-export")
+def reexport_one(txn_id: int, db: Session = Depends(get_db)):
+    """重导出：已导出的交易被编辑并重新确认后，用新内容替换 .bean 中的旧分录。
+    旧导出记录标记 SUPERSEDED（保留历史），月度 fragment 按最新 DB 状态整体重生成。"""
+    try:
+        record = ExportService.reexport_transaction(db, txn_id)
+        db.commit()
+        return {"status": record.status, "file_path": record.file_path, "file_sha256": record.file_sha256}
+    except ValueError as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/exports")
 def export_history(
     transaction_id: int | None = None,
@@ -284,10 +297,17 @@ def export_download(record_id: int, db: Session = Depends(get_db)):
     if not rec.file_path or not os.path.exists(rec.file_path):
         raise HTTPException(status_code=404, detail="导出文件已不存在于服务器")
 
-    # 校验完整性：文件内容与记录的 sha256 一致才允许下载
+    # 完整性校验：fragment 按月共享，同月后续导出会使较早记录的 sha 失配。
+    # 因此按文件级判断：该文件的任意活跃记录 sha 与当前内容一致即视为系统生成的合法状态。
     actual_sha = hashlib.sha256(open(rec.file_path, "rb").read()).hexdigest()
-    if actual_sha != rec.file_sha256:
-        raise HTTPException(status_code=409, detail="文件校验失败：内容与导出记录不一致（可能已被修改）")
+    sibling_shas = [
+        r.file_sha256
+        for r in db.query(ExportRecord)
+        .filter(ExportRecord.file_path == rec.file_path, ExportRecord.status == "EXPORTED")
+        .all()
+    ]
+    if actual_sha not in sibling_shas:
+        raise HTTPException(status_code=409, detail="文件校验失败：内容与所有活跃导出记录不一致（可能已被外部修改）")
 
     filename = os.path.basename(rec.file_path)
     return FileResponse(
@@ -304,22 +324,37 @@ def reconciliation(db: Session = Depends(get_db)):
 
     issues = []
     confirmed = db.query(Transaction).filter(Transaction.status == "CONFIRMED").all()
+
+    # 收集每笔已确认交易的活跃导出记录
+    active_recs: dict[int, ExportRecord] = {}
     for txn in confirmed:
         rec = (
             db.query(ExportRecord)
             .filter(ExportRecord.transaction_id == txn.id, ExportRecord.status == "EXPORTED")
             .first()
         )
-        if not rec:
+        if rec:
+            active_recs[txn.id] = rec
+
+    # NOT_EXPORTED：已确认但无活跃记录
+    for txn in confirmed:
+        if txn.id not in active_recs:
             issues.append({"code": "NOT_EXPORTED", "transaction_id": txn.id, "message": "已确认但未导出"})
-        else:
-            if not rec.file_path or not os.path.exists(rec.file_path):
-                issues.append({"code": "MISSING_FILE", "transaction_id": txn.id, "message": f"导出文件缺失: {rec.file_path}"})
-            else:
-                with open(rec.file_path, "rb") as f:
-                    actual = hashlib.sha256(f.read()).hexdigest()
-                if actual != rec.file_sha256:
-                    issues.append({"code": "HASH_MISMATCH", "transaction_id": txn.id, "message": "导出文件内容与记录不一致"})
+
+    # 文件级健康检查：fragment 是按月共享的，同月多笔导出后只有最新记录的 sha 与文件一致。
+    # 因此按文件聚合判断：文件存在，且该文件的任意活跃记录 sha 与当前内容一致即为健康。
+    files: dict[str, list[ExportRecord]] = {}
+    for rec in active_recs.values():
+        if rec.file_path:
+            files.setdefault(rec.file_path, []).append(rec)
+    for path, recs in files.items():
+        if not os.path.exists(path):
+            for rec in recs:
+                issues.append({"code": "MISSING_FILE", "transaction_id": rec.transaction_id, "message": f"导出文件缺失: {path}"})
+            continue
+        actual = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        if not any(r.file_sha256 == actual for r in recs):
+            issues.append({"code": "HASH_MISMATCH", "transaction_id": recs[0].transaction_id, "message": f"导出文件内容与所有活跃记录均不一致: {os.path.basename(path)}"})
 
     main_bean = os.path.join(settings.LEDGER_DIR, "main.bean")
     if os.path.exists(main_bean):

@@ -20,6 +20,8 @@ const TransactionDetail = () => {
   // allocation 编辑状态：payment = 支付账户（Assets），expense = 分类账户（Expenses 等）
   const [paymentRows, setPaymentRows] = useState<SplitRow[]>([]);
   const [expenseRows, setExpenseRows] = useState<SplitRow[]>([]);
+  const [hasActiveExport, setHasActiveExport] = useState<boolean | null>(null);
+  const [exportMsg, setExportMsg] = useState('');
 
   const load = useCallback(() => {
     setLoading(true);
@@ -27,8 +29,9 @@ const TransactionDetail = () => {
     Promise.all([
       apiFetch<any>(`/api/transactions/${id}`),
       apiFetch<any[]>('/api/accounts'),
+      apiFetch<any>(`/api/exports?transaction_id=${id}`).catch(() => ({ items: [] })),
     ])
-      .then(([t, accs]) => {
+      .then(([t, accs, exps]) => {
         setTxn(t);
         // /api/accounts 返回 {name, aliases, open_date} 对象数组；此处只需要账户名字符串列表
         setAccounts((accs ?? []).map((a: any) => (typeof a === 'string' ? a : a.name)));
@@ -36,6 +39,7 @@ const TransactionDetail = () => {
         const all: { account: string; amount: string; role?: string }[] = (t.splits ?? []).map((s: any) => ({ account: s.account, amount: s.amount, role: s.role }));
         setPaymentRows(all.filter((s: { account: string; role?: string }) => s.role ? s.role === 'payment' : s.account.startsWith('Assets:')).map((s: { account: string; amount: string }) => ({ account: s.account, amount: s.amount })));
         setExpenseRows(all.filter((s: { account: string; role?: string }) => s.role ? s.role !== 'payment' : !s.account.startsWith('Assets:')).map((s: { account: string; amount: string }) => ({ account: s.account, amount: s.amount })));
+        setHasActiveExport((exps.items ?? []).some((e: any) => e.status === 'EXPORTED'));
       })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
@@ -66,6 +70,21 @@ const TransactionDetail = () => {
     } catch (e: any) {
       setActionError(e.message);
       setConfirmDelete(false);
+    } finally {
+      setActing(false);
+    }
+  };
+
+  const doExport = async (kind: 'export' | 're-export') => {
+    setActing(true);
+    setActionError('');
+    setExportMsg('');
+    try {
+      await apiFetch(`/api/transactions/${id}/${kind}`, { method: 'POST' });
+      setExportMsg(kind === 're-export' ? '已重导出，.bean 分录已更新为最新内容' : '已导出到 .bean');
+      load();
+    } catch (e: any) {
+      setActionError(e.message);
     } finally {
       setActing(false);
     }
@@ -315,6 +334,12 @@ const TransactionDetail = () => {
         <Button onClick={saveSplits} disabled={acting || !allocationValid || !canEditSplits}>保存账户分配</Button>
         <Button onClick={() => doAction('confirm')} disabled={acting || txn.status === 'CONFIRMED' || !allocationValid}>确认</Button>
         <Button variant="danger" onClick={() => doAction('ignore')} disabled={acting || txn.status === 'IGNORED'}>跳过（不导出）</Button>
+        {txn.status === 'CONFIRMED' && allocationValid && hasActiveExport === false && (
+          <Button onClick={() => doExport('export')} disabled={acting}>导出到 .bean</Button>
+        )}
+        {txn.status === 'CONFIRMED' && allocationValid && hasActiveExport === true && (
+          <Button onClick={() => doExport('re-export')} disabled={acting}>重导出（更新 .bean 分录）</Button>
+        )}
         {!confirmDelete && (
           <Button variant="danger" onClick={() => setConfirmDelete(true)} disabled={acting}>删除…</Button>
         )}
@@ -327,6 +352,7 @@ const TransactionDetail = () => {
         )}
         <Button variant="ghost" onClick={() => navigate('/transactions')}>返回列表</Button>
       </div>
+      {exportMsg && <p className="page-sub" style={{ marginTop: 8, color: 'var(--success)' }}>✓ {exportMsg}</p>}
       {txn.status === 'CONFIRMED' && (
         <p className="page-sub" style={{ marginTop: 8 }}>⚠ 该交易已确认；如需修改请先保存修改，保存后将自动回到「待审核」状态，需重新确认</p>
       )}

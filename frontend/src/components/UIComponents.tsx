@@ -26,6 +26,7 @@ export const Badge = ({ status }: { status: string }) => {
     PENDING: { text: '等待导出', cls: 'badge-muted' },
     EXPORTING: { text: '导出中', cls: 'badge-warning' },
     EXPORTED: { text: '已导出', cls: 'badge-success' },
+    SUPERSEDED: { text: '已被重导出取代', cls: 'badge-muted' },
     FAILED: { text: '导出失败', cls: 'badge-danger' },
     IMPORTED: { text: '已导入', cls: 'badge-success' },
     COMPLETED: { text: '已完成', cls: 'badge-success' },
