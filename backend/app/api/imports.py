@@ -54,8 +54,9 @@ def _save_upload(file: UploadFile, db: Session, batch: ImportBatch) -> tuple[str
         # Raw 数据不可变，重复分析同一文件是安全的（commit 阶段有交易级 Dedup 兜底）。
         existing_file = db.query(DBFile).filter(DBFile.sha256 == sha256).first()
         if existing_file:
-            if not existing_file.import_batch_id:
-                existing_file.import_batch_id = batch.id
+            # 关键修复：文件记录必须跟随最新批次，否则新批次 commit 时
+            # 按 import_batch_id 查不到文件 → "批次缺少文件记录"
+            existing_file.import_batch_id = batch.id
             db_file = existing_file
             storage_path = existing_file.storage_path
         else:
@@ -132,10 +133,15 @@ async def analyze_import(file: UploadFile = File(...), db: Session = Depends(get
         batch.source_type = importer.name.upper()
         db_file.source_type = batch.source_type
 
-        # 保存 RawTransaction（Raw 不可变，属于原始数据，不算业务导入结果）
-        for idx, row in enumerate(raw_data_list, start=1):
-            db.add(RawTransaction(file_id=db_file.id, raw_data_json=row, row_number=idx))
-        db.flush()
+        # 保存 RawTransaction（Raw 不可变）：同一文件重复分析时不重复保存，
+        # 否则 raw 行会翻倍，导致 commit 统计错乱
+        existing_raw_count = (
+            db.query(RawTransaction).filter(RawTransaction.file_id == db_file.id).count()
+        )
+        if existing_raw_count == 0:
+            for idx, row in enumerate(raw_data_list, start=1):
+                db.add(RawTransaction(file_id=db_file.id, raw_data_json=row, row_number=idx))
+            db.flush()
 
         analysis = _analyze_rows(db, importer, raw_data_list, db_file)
 
@@ -350,9 +356,13 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
         batch.source_type = importer.name.upper()
         db_file.source_type = batch.source_type
 
-        for idx, row in enumerate(raw_data_list, start=1):
-            db.add(RawTransaction(file_id=db_file.id, raw_data_json=row, row_number=idx))
-        db.flush()
+        existing_raw_count = (
+            db.query(RawTransaction).filter(RawTransaction.file_id == db_file.id).count()
+        )
+        if existing_raw_count == 0:
+            for idx, row in enumerate(raw_data_list, start=1):
+                db.add(RawTransaction(file_id=db_file.id, raw_data_json=row, row_number=idx))
+            db.flush()
 
         dedup = DeduplicationService()
         engine = RuleService.build_engine(db)
