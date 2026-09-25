@@ -10,6 +10,7 @@ from app.services.importer import ImporterRegistry
 from app.services.deduplication import DeduplicationService
 from app.services.rule_service import RuleService
 from app.models.models import Account
+from app.core.config import settings
 import app.services.alipay_importer  # noqa: F401  注册内置 Importer
 
 router = APIRouter(prefix="/api/imports")
@@ -240,8 +241,9 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
         db.add(txn)
         db.flush()
 
-        # 支付账户：按收/付款方式自动匹配 Assets 账户（账户管理 aliases），失败由导出阶段默认账户兜底
-        payment_account = match_payment_account(db, norm.payment_method)
+        # 支付账户：按收/付款方式自动匹配 Assets 账户（账户管理 aliases）；
+        # 无匹配时回落到系统默认 Assets 账户，保证每笔导入交易都有支付分录
+        payment_account = match_payment_account(db, norm.payment_method) or settings.DEFAULT_ASSETS_ACCOUNT
 
         db.add(TransactionSplit(
             transaction_id=txn.id,
@@ -249,13 +251,12 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
             amount=str(norm.amount),
             role="expense",
         ))
-        if payment_account:
-            db.add(TransactionSplit(
-                transaction_id=txn.id,
-                account=payment_account,
-                amount=str(-norm.amount) if norm.direction != "收入" else str(norm.amount),
-                role="payment",
-            ))
+        db.add(TransactionSplit(
+            transaction_id=txn.id,
+            account=payment_account,
+            amount=str(-norm.amount) if norm.direction != "收入" else str(norm.amount),
+            role="payment",
+        ))
         if review_required_status == "REVIEW_REQUIRED":
             stats["review_required"] += 1
         stats["created"] += 1
@@ -406,20 +407,19 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
             )
             db.add(txn)
             db.flush()
-            payment_account = match_payment_account(db, norm.payment_method)
+            payment_account = match_payment_account(db, norm.payment_method) or settings.DEFAULT_ASSETS_ACCOUNT
             db.add(TransactionSplit(
                 transaction_id=txn.id,
                 account=actions.get("account", "Expenses:Uncategorized"),
                 amount=str(norm.amount),
                 role="expense",
             ))
-            if payment_account:
-                db.add(TransactionSplit(
-                    transaction_id=txn.id,
-                    account=payment_account,
-                    amount=str(-norm.amount) if norm.direction != "收入" else str(norm.amount),
-                    role="payment",
-                ))
+            db.add(TransactionSplit(
+                transaction_id=txn.id,
+                account=payment_account,
+                amount=str(-norm.amount) if norm.direction != "收入" else str(norm.amount),
+                role="payment",
+            ))
             if status == "REVIEW_REQUIRED":
                 stats["review_required"] += 1
             stats["created"] += 1
