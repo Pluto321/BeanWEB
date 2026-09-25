@@ -74,7 +74,7 @@ const Dashboard = () => {
         </div>
       </div>
 
-      <div className="card-grid">
+      <div className="status-grid">
         {kpis.map(k => (
           <div key={k.label} onClick={k.onClick} style={{ cursor: 'pointer' }}>
             <KpiCard value={k.value} label={k.label} accent={k.accent} hint={k.hint} />
