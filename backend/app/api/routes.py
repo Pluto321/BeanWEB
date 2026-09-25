@@ -172,6 +172,43 @@ def batch_skip(data: dict, db: Session = Depends(get_db)):
     return {"skipped": skipped}
 
 
+@router.post("/batch-delete")
+def batch_delete(data: dict, db: Session = Depends(get_db)):
+    """批量永久删除：transaction_ids 中的交易连同分片一起删除。
+    已导出的交易拒绝删除（逐笔校验，互不影响）。RawTransaction 保留（不可变原则）。"""
+    ids = data.get("transaction_ids") or []
+    if not ids:
+        raise HTTPException(status_code=400, detail="transaction_ids 不能为空")
+
+    deleted = 0
+    failed = 0
+    results = []
+    for tid in ids:
+        txn = db.query(Transaction).filter(Transaction.id == tid).first()
+        if not txn:
+            db.rollback()
+            results.append({"transaction_id": tid, "status": "FAILED", "error": "交易不存在"})
+            failed += 1
+            continue
+        has_export = db.query(ExportRecord).filter(
+            ExportRecord.transaction_id == tid, ExportRecord.status == "EXPORTED"
+        ).first()
+        if has_export:
+            db.rollback()
+            results.append({"transaction_id": tid, "status": "SKIPPED", "error": "已导出的交易不能删除"})
+            failed += 1
+            continue
+        old = {"merchant": txn.merchant, "amount": txn.amount, "date": txn.date, "status": txn.status}
+        db.query(TransactionSplit).filter(TransactionSplit.transaction_id == tid).delete()
+        AuditService.log_change(db, "transaction", tid, "DELETE", old, None, "Transaction batch deleted by user")
+        db.delete(txn)
+        db.commit()
+        results.append({"transaction_id": tid, "status": "DELETED"})
+        deleted += 1
+
+    return {"total": len(ids), "deleted": deleted, "failed": failed, "results": results}
+
+
 @router.post("/{txn_id}/confirm")
 def confirm_transaction(txn_id: int, db: Session = Depends(get_db)):
     ReviewService.set_status(db, txn_id, "CONFIRMED", "Confirmed by user")

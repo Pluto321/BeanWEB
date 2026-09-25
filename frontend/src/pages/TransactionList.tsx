@@ -11,6 +11,7 @@ const TransactionList = () => {
   const [selected, setSelected] = useState<Set<number>>(new Set());
   const [batchMsg, setBatchMsg] = useState('');
   const [acting, setActing] = useState(false);
+  const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -57,6 +58,27 @@ const TransactionList = () => {
     }
   };
 
+  const batchDelete = async () => {
+    if (selected.size === 0) return;
+    setActing(true);
+    setBatchMsg('');
+    try {
+      const res = await apiFetch<any>('/api/transactions/batch-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ transaction_ids: Array.from(selected) }),
+      });
+      setBatchMsg(`已永久删除 ${res.deleted} 笔${res.failed ? `，未删除 ${res.failed} 笔（已导出或不存在）` : ''}`);
+      setSelected(new Set());
+      setConfirmBatchDelete(false);
+      load();
+    } catch (e: any) {
+      setBatchMsg(`删除失败：${e.message}`);
+    } finally {
+      setActing(false);
+    }
+  };
+
   return (
     <div>
       <div className="page-header">
@@ -78,7 +100,19 @@ const TransactionList = () => {
           <>
             <span className="tag">已选 {selected.size} 笔</span>
             <Button variant="danger" onClick={batchSkip} disabled={acting}>批量跳过</Button>
-            <Button variant="ghost" onClick={() => setSelected(new Set())}>取消选择</Button>
+            {!confirmBatchDelete && (
+              <Button variant="danger" onClick={() => setConfirmBatchDelete(true)} disabled={acting}>批量删除…</Button>
+            )}
+            {confirmBatchDelete && (
+              <>
+                <span style={{ color: 'var(--danger)', fontSize: 13 }}>
+                  确认永久删除选中的 {selected.size} 笔交易？不可恢复，原始导入数据会保留
+                </span>
+                <Button variant="danger" onClick={batchDelete} disabled={acting}>确认删除</Button>
+                <Button variant="ghost" onClick={() => setConfirmBatchDelete(false)}>取消</Button>
+              </>
+            )}
+            <Button variant="ghost" onClick={() => { setSelected(new Set()); setConfirmBatchDelete(false); }}>取消选择</Button>
           </>
         )}
         {batchMsg && <span className="page-sub">{batchMsg}</span>}
