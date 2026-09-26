@@ -17,16 +17,6 @@ export const PageHeader = ({ title, description, actions }: { title: string; des
   </div>
 );
 
-export const KpiCard = ({ value, label, accent = 'var(--color-brand)', hint }: { value: string | number; label: string; accent?: string; hint?: string }) => (
-  <div className="card kpi-card" style={{ borderLeft: `4px solid ${accent}` }}>
-    <div className="kpi-top">
-      <span className="kpi-label">{label}</span>
-      {hint && <span className="kpi-hint">{hint}</span>}
-    </div>
-    <div className="kpi-number" style={{ color: accent }}>{value}</div>
-  </div>
-);
-
 export const Badge = ({ status }: { status: string }) => {
   const map: Record<string, { text: string; cls: string }> = {
     REVIEW_REQUIRED: { text: '待审核', cls: 'badge-warning' },

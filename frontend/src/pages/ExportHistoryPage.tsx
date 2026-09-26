@@ -142,7 +142,7 @@ const ExportHistoryPage = () => {
               <tr key={r.id} className={detailId === r.id ? 'selected' : ''}>
                 <td className="td-strong mono">{baseName(r.file_path)}</td>
                 <td className="td-date">{periodFromPath(r.file_path)}</td>
-                <td><Link to={`/transactions/${r.transaction_id}`} className="ov-work-link">#{r.transaction_id}</Link></td>
+                <td><Link to={`/transactions?selected=${r.transaction_id}`} className="ov-work-link">#{r.transaction_id}</Link></td>
                 <td><Badge status={r.status} /></td>
                 <td className="td-date">{fmtTime(r.completed_at ?? r.created_at)}</td>
                 <td>
@@ -219,7 +219,7 @@ const ExportHistoryPage = () => {
                         <div className="drawer-field"><span className="drawer-field-label">分类</span><span className="drawer-field-value mono">{detail.transaction.expenses.map(e => `${e.account} ${e.amount}`).join('；')}</span></div>
                       )}
                       <div style={{ marginTop: 'var(--space-2)' }}>
-                        <Link to={`/transactions/${detail.transaction.id}`} className="ov-work-link">在交易审核中查看 →</Link>
+                        <Link to={`/transactions?selected=${detail.transaction.id}`} className="ov-work-link">在交易审核中查看 →</Link>
                       </div>
                     </div>
                   )}

@@ -1,7 +1,8 @@
 ﻿import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
-import { Badge, Button, Card, EmptyState, ErrorState, LoadingState } from '../components/UIComponents';
+import { Badge, Button, Card, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/UIComponents';
+import { ImportAnalysisSummary } from '../components/import/ImportAnalysisSummary';
 
 const STATUS_MAP: Record<string, { text: string; badge: string }> = {
   COMPLETED: { text: '已完成', badge: 'badge-success' },
@@ -57,17 +58,17 @@ const ImportHistoryPage = () => {
 
   return (
     <div>
-      <div className="page-header">
-        <div>
-          <h2 className="page-title">导入历史</h2>
-          <p className="page-sub">{data?.total ?? 0} 个批次 · 点击详情查看 Raw → Transaction 追踪链</p>
-        </div>
-      </div>
+      <PageHeader
+        title="导入历史"
+        description={data ? `${data.total ?? 0} 个批次 · 点击详情查看 Raw → Transaction 追踪链` : '查看历史导入批次'}
+      />
 
       {loading && <LoadingState />}
       {error && <ErrorState message={error} onRetry={load} />}
 
-      {!loading && !error && data && data.items.length === 0 && <EmptyState text="暂无导入记录" />}
+      {!loading && !error && data && data.items.length === 0 && (
+        <EmptyState text="还没有导入记录。导入第一份流水后，可以在这里查看每个批次的处理结果。" />
+      )}
 
       {!loading && !error && data && data.items.length > 0 && (
         <table className="ui-table">
@@ -89,7 +90,7 @@ const ImportHistoryPage = () => {
                   <td className="amount-cell" style={{ color: 'var(--color-text-tertiary)' }}>{s ? s.existing : '—'}</td>
                   <td className="amount-cell" style={{ color: 'var(--color-danger)' }}>{s ? s.invalid : '—'}</td>
                   <td className="td-date">{b.started_at ? new Date(b.started_at).toLocaleString() : '—'}</td>
-                  <td><Link to="#" onClick={e => { e.preventDefault(); openDetail(b.id); }}>详情</Link></td>
+                  <td><Link to="#" onClick={e => { e.preventDefault(); openDetail(b.id); }} className="ov-work-link">详情</Link></td>
                 </tr>
               );
             })}
@@ -103,12 +104,14 @@ const ImportHistoryPage = () => {
         <Card title={`批次 ${detail.id} · ${detail.filename ?? ''}`}>
           <div className="field-row"><span className="field-label">状态</span><Badge status={detail.status} /></div>
           {detail.stats && (
-            <div className="card-grid" style={{ marginTop: 8 }}>
-              <Card><div className="kpi-number">{detail.stats.total}</div><div className="kpi-label">总记录</div></Card>
-              <Card><div className="kpi-number" style={{ color: 'var(--color-success)' }}>{detail.stats.created ?? detail.stats.new}</div><div className="kpi-label">新增</div></Card>
-              <Card><div className="kpi-number" style={{ color: 'var(--color-text-tertiary)' }}>{detail.stats.existing}</div><div className="kpi-label">重复</div></Card>
-              <Card><div className="kpi-number" style={{ color: 'var(--color-warning)' }}>{detail.stats.possible_duplicate}</div><div className="kpi-label">可能重复</div></Card>
-              <Card><div className="kpi-number" style={{ color: 'var(--color-danger)' }}>{detail.stats.invalid}</div><div className="kpi-label">异常</div></Card>
+            <div style={{ marginTop: 'var(--space-2)' }}>
+              <ImportAnalysisSummary stats={{
+                total: detail.stats.total,
+                new: detail.stats.created ?? detail.stats.new ?? 0,
+                existing: detail.stats.existing ?? 0,
+                possible_duplicate: detail.stats.possible_duplicate ?? 0,
+                invalid: detail.stats.invalid ?? 0,
+              }} />
             </div>
           )}
 
@@ -134,7 +137,7 @@ const ImportHistoryPage = () => {
                       <td className="amount-cell">{fmtCNY(t.amount)}</td>
                       <td>{t.direction === '收入' ? '收入' : '支出'}</td>
                       <td><Badge status={t.status} /></td>
-                      <td><Link to={`/transactions/${t.id}`}>详情</Link></td>
+                      <td><Link to={`/transactions?selected=${t.id}`} className="ov-work-link">详情</Link></td>
                     </tr>
                   ))}
                 </tbody>

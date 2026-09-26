@@ -114,7 +114,7 @@ const ExportPage = () => {
               <div className="ov-fin-item">
                 <span className="ov-fin-label">输出文件</span>
                 <span className="ov-fin-value mono" style={{ fontSize: 'var(--font-size-md)' }}>
-                  {periods.map(p => `${p[0]}.bean`).slice(0, 2).join('、')}{periods.length > 2 ? '…' : ''}
+                  {periods.map(p => `generated/${p[0].replace('-', '/')}.bean`).slice(0, 2).join('、')}{periods.length > 2 ? '…' : ''}
                 </span>
               </div>
             </div>

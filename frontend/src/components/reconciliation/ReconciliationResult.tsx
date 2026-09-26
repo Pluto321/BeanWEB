@@ -56,7 +56,7 @@ export const ReconciliationResult = ({ data, onRetry }: { data: any; onRetry: ()
                   <td className="td-muted">{iss.message}</td>
                   <td>
                     {iss.transaction_id
-                      ? <Link to={`/transactions/${iss.transaction_id}`} className="ov-work-link">#{iss.transaction_id}</Link>
+                      ? <Link to={`/transactions?selected=${iss.transaction_id}`} className="ov-work-link">#{iss.transaction_id}</Link>
                       : <span className="td-muted">—</span>}
                   </td>
                 </tr>
