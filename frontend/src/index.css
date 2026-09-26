@@ -701,6 +701,205 @@ input:disabled, select:disabled {
 .p-4 { padding: var(--space-4); }
 
 /* ============================================================
+   UI-4: Import Workflow
+   ============================================================ */
+
+/* Stepper：workflow 状态指示，非进度条 */
+.import-stepper {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  list-style: none;
+  padding: 0;
+  margin-bottom: var(--space-5);
+  overflow-x: auto;
+}
+
+.stepper-item {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+
+.stepper-dot {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface);
+  color: var(--color-text-tertiary);
+}
+
+.stepper-label {
+  font-size: var(--font-size-md);
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+
+.stepper-item.active .stepper-dot {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+}
+
+.stepper-item.active .stepper-label { color: var(--color-brand); font-weight: var(--font-weight-medium); }
+
+.stepper-item.completed .stepper-dot {
+  border-color: var(--color-success-border);
+  background: var(--color-success-soft);
+  color: var(--color-success);
+}
+
+.stepper-item.completed .stepper-label { color: var(--color-text-secondary); }
+
+.stepper-item.busy .stepper-dot { border-color: var(--color-brand); }
+.stepper-busy-hint { color: var(--color-brand); margin-left: 2px; }
+
+.stepper-line {
+  width: 24px;
+  height: 1px;
+  background: var(--color-border);
+  margin: 0 var(--space-1);
+}
+
+/* Dropzone（原生拖拽，无额外依赖） */
+.dropzone {
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  padding: var(--space-10) var(--space-6);
+  text-align: center;
+  transition: border-color 150ms, background 150ms;
+}
+
+.dropzone.drag-over {
+  border-color: var(--color-brand);
+  background: var(--color-brand-soft);
+}
+
+.dropzone-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+}
+
+.dropzone-hint {
+  font-size: var(--font-size-md);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-5);
+}
+
+.dropzone-btn { margin: 0 auto; cursor: pointer; }
+
+/* 分析结果 summary（小号统计，非 KPI 大数字） */
+.analysis-summary {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: var(--space-3);
+  margin-bottom: var(--space-4);
+}
+
+.analysis-summary .analysis-summary-item { padding: var(--space-4); }
+
+.analysis-number {
+  font-size: 26px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-tight);
+}
+
+.analysis-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  margin-top: var(--space-1);
+}
+
+.analysis-hint {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  margin-top: var(--space-1);
+}
+
+/* 问题提示条 */
+.issue-banner {
+  background: var(--color-warning-soft);
+  border: 1px solid #ecd9b0;
+  border-radius: var(--radius-md);
+  padding: var(--space-3) var(--space-4);
+  font-size: var(--font-size-md);
+  color: var(--color-warning);
+  margin-bottom: var(--space-4);
+}
+
+/* 原始数据折叠面板 */
+.raw-details {
+  margin-top: var(--space-1);
+}
+
+.raw-details summary {
+  cursor: pointer;
+  font-size: var(--font-size-sm);
+  color: var(--color-brand);
+  user-select: none;
+  width: fit-content;
+}
+
+.raw-details summary:hover { text-decoration: underline; }
+
+.raw-json {
+  margin-top: var(--space-2);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+  font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+  font-size: var(--font-size-xs);
+  line-height: var(--line-height-normal);
+  max-height: 180px;
+  overflow: auto;
+}
+
+.raw-line { display: flex; gap: var(--space-2); }
+.raw-key { color: var(--color-text-tertiary); flex-shrink: 0; }
+.raw-value { color: var(--color-text); word-break: break-all; }
+
+/* 问题行着色（弱化，非警报） */
+.ui-table tr.row-warning td { background: var(--color-warning-soft); }
+.ui-table tr.row-danger td { background: var(--color-danger-soft); }
+
+/* 导入页脚操作区 */
+.import-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  padding: var(--space-3) 0;
+  margin-top: var(--space-2);
+}
+
+/* 完成标记 */
+.done-mark {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--color-success-soft);
+  color: var(--color-success);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 20px;
+  font-weight: var(--font-weight-bold);
+  margin-bottom: var(--space-3);
+}
+
+/* ============================================================
    UI-3: Transaction Review Workspace
    ============================================================ */
 
@@ -1036,4 +1235,13 @@ input:disabled, select:disabled {
   .drawer-close { display: none; }
   .app-shell .workspace.drawer-open .content { margin-right: 0; }
   .filter-bar input[type="text"], .filter-bar input[type="search"] { width: 100%; }
+
+  /* UI-4 Mobile：Stepper 紧凑、Summary 两列、footer 堆叠 */
+  .stepper-line { width: 12px; }
+  .stepper-label { font-size: var(--font-size-sm); }
+  .analysis-summary { grid-template-columns: repeat(2, 1fr); }
+  .import-footer { flex-direction: column; align-items: stretch; }
+  .import-footer .page-sub { text-align: center; }
+  .import-footer span:last-child { justify-content: center; }
+  .dropzone { padding: var(--space-6) var(--space-4); }
 }

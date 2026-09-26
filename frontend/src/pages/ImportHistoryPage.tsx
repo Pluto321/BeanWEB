@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+﻿import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 import { Badge, Button, Card, EmptyState, ErrorState, LoadingState } from '../components/UIComponents';
@@ -86,7 +86,7 @@ const ImportHistoryPage = () => {
                   <td><span className={`badge ${st.badge}`}>{st.text}</span></td>
                   <td className="amount-cell">{s ? s.total : '—'}</td>
                   <td className="amount-cell" style={{ color: 'var(--color-success)' }}>{s ? s.created ?? s.new : '—'}</td>
-                  <td className="amount-cell" style={{ color: 'var(--color-muted)' }}>{s ? s.existing : '—'}</td>
+                  <td className="amount-cell" style={{ color: 'var(--color-text-tertiary)' }}>{s ? s.existing : '—'}</td>
                   <td className="amount-cell" style={{ color: 'var(--color-danger)' }}>{s ? s.invalid : '—'}</td>
                   <td className="td-date">{b.started_at ? new Date(b.started_at).toLocaleString() : '—'}</td>
                   <td><Link to="#" onClick={e => { e.preventDefault(); openDetail(b.id); }}>详情</Link></td>
@@ -106,7 +106,7 @@ const ImportHistoryPage = () => {
             <div className="card-grid" style={{ marginTop: 8 }}>
               <Card><div className="kpi-number">{detail.stats.total}</div><div className="kpi-label">总记录</div></Card>
               <Card><div className="kpi-number" style={{ color: 'var(--color-success)' }}>{detail.stats.created ?? detail.stats.new}</div><div className="kpi-label">新增</div></Card>
-              <Card><div className="kpi-number" style={{ color: 'var(--color-muted)' }}>{detail.stats.existing}</div><div className="kpi-label">重复</div></Card>
+              <Card><div className="kpi-number" style={{ color: 'var(--color-text-tertiary)' }}>{detail.stats.existing}</div><div className="kpi-label">重复</div></Card>
               <Card><div className="kpi-number" style={{ color: 'var(--color-warning)' }}>{detail.stats.possible_duplicate}</div><div className="kpi-label">可能重复</div></Card>
               <Card><div className="kpi-number" style={{ color: 'var(--color-danger)' }}>{detail.stats.invalid}</div><div className="kpi-label">异常</div></Card>
             </div>
