@@ -1,11 +1,14 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 import { Badge, Button, EmptyState, ErrorState, LoadingState } from '../components/UIComponents';
 
 const TransactionList = () => {
   const [txns, setTxns] = useState<any[]>([]);
-  const [status, setStatus] = useState('');
+  // 状态筛选以 URL query 为准（既有契约：Dashboard/侧栏均以 /transactions?status=X 跳转）
+  const [searchParams, setSearchParams] = useSearchParams();
+  const status = searchParams.get('status') ?? '';
+  const setStatus = (next: string) => setSearchParams(next ? { status: next } : {}, { replace: true });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [selected, setSelected] = useState<Set<number>>(new Set());
