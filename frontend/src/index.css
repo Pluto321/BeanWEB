@@ -632,6 +632,160 @@ input:disabled, select:disabled {
 .modal-body .card { margin-bottom: var(--space-4); }
 
 /* ============================================================
+   UI-6: Accounts / Rules Configuration
+   ============================================================ */
+
+/* 配置 Drawer（账户/规则共用，遮罩式，不占 workspace margin） */
+.cfg-drawer-mask {
+  position: fixed;
+  inset: 0;
+  background: rgba(23, 23, 26, 0.32);
+  z-index: calc(var(--z-drawer) - 1);
+}
+
+.cfg-drawer {
+  position: fixed;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 480px;
+  max-width: 100%;
+  background: var(--color-surface);
+  border-left: 1px solid var(--color-border);
+  box-shadow: var(--shadow-md);
+  z-index: var(--z-drawer);
+  display: flex;
+  flex-direction: column;
+}
+
+/* Account tree */
+.acc-type-card { margin-bottom: var(--space-4); }
+.acc-type-card .ov-fin-scope { margin-top: calc(-1 * var(--space-2)); margin-bottom: var(--space-3); }
+
+.acc-leaf {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--color-bg);
+  min-width: 0;
+  flex-wrap: wrap;
+}
+
+.acc-leaf:last-child { border-bottom: none; }
+
+.acc-leaf-name {
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text);
+  font-size: var(--font-size-md);
+}
+
+.acc-alias {
+  font-size: var(--font-size-xs);
+  background: var(--color-brand-soft);
+  color: var(--color-brand);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-2);
+}
+
+.acc-leaf-path {
+  font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.acc-edit-alias {
+  background: none;
+  border: none;
+  color: var(--color-brand);
+  font-size: var(--font-size-sm);
+  cursor: pointer;
+  padding: var(--space-1) var(--space-2);
+  border-radius: var(--radius-sm);
+  flex-shrink: 0;
+}
+
+.acc-edit-alias:hover { background: var(--color-brand-soft); }
+
+.acc-branch-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text-secondary);
+  padding: var(--space-2) 0 var(--space-1);
+}
+
+.acc-alias-card { margin-bottom: var(--space-4); }
+
+/* Rule cards */
+.rule-card { margin-bottom: var(--space-3); padding: var(--space-4); }
+
+.rule-row {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-4);
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.rule-info { min-width: 0; flex: 1; }
+
+.rule-name {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  font-weight: var(--font-weight-semibold);
+  font-size: var(--font-size-lg);
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.rule-priority {
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-tertiary);
+  background: var(--color-bg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: 1px var(--space-2);
+  font-variant-numeric: tabular-nums;
+}
+
+.rule-toggle {
+  background: none;
+  border: none;
+  font-size: var(--font-size-sm);
+  font-family: var(--font-family);
+  cursor: pointer;
+  padding: 2px var(--space-2);
+  border-radius: var(--radius-sm);
+}
+
+.rule-toggle.on { color: var(--color-success); }
+.rule-toggle.on:hover { background: var(--color-success-soft); }
+.rule-toggle.off { color: var(--color-text-tertiary); }
+.rule-toggle.off:hover { background: var(--color-bg); }
+
+.rule-cond, .rule-act {
+  font-size: var(--font-size-md);
+  color: var(--color-text-secondary);
+  line-height: var(--line-height-relaxed);
+}
+
+.rule-ops {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  flex-shrink: 0;
+  flex-wrap: wrap;
+}
+
+/* ============================================================
    UI-5: Overview / Dashboard
    ============================================================ */
 
