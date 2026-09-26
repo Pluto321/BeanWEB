@@ -632,6 +632,78 @@ input:disabled, select:disabled {
 .modal-body .card { margin-bottom: var(--space-4); }
 
 /* ============================================================
+   UI-7: Export / Reconciliation Workspace
+   ============================================================ */
+
+/* Export 摘要卡 */
+.export-summary { margin-bottom: var(--space-4); }
+.export-confirm { margin-bottom: var(--space-4); border-left: 3px solid var(--color-brand); }
+
+/* 账本核对状态卡 */
+.rec-status-card { margin-bottom: var(--space-4); }
+
+.rec-headline {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-4);
+}
+
+.rec-mark {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 18px;
+  font-weight: var(--font-weight-bold);
+  flex-shrink: 0;
+}
+
+.rec-mark.ok { background: var(--color-success-soft); color: var(--color-success); }
+.rec-mark.warn { background: var(--color-warning-soft); color: var(--color-warning); }
+
+.rec-status-label {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-1);
+}
+
+.rec-actions { margin-left: auto; flex-shrink: 0; align-self: center; }
+
+/* 技术信息折叠面板 */
+.tech-grid {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin-top: var(--space-2);
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.tech-row { display: flex; gap: var(--space-3); align-items: baseline; min-width: 0; }
+
+.tech-label {
+  width: 90px;
+  flex-shrink: 0;
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+.tech-value {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+  word-break: break-all;
+  min-width: 0;
+}
+
+.tech-value.mono, .mono {
+  font-family: 'SF Mono', 'JetBrains Mono', Consolas, monospace;
+}
+
+/* ============================================================
    UI-6: Accounts / Rules Configuration
    ============================================================ */
 
