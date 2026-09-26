@@ -632,73 +632,247 @@ input:disabled, select:disabled {
 .modal-body .card { margin-bottom: var(--space-4); }
 
 /* ============================================================
-   趋势柱状图（纯 CSS）
+   UI-5: Overview / Dashboard
    ============================================================ */
-.trend-chart {
-  display: flex;
+
+/* 状态卡（P0）：链接卡片，border-first */
+.ov-status-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
   gap: var(--space-3);
-  align-items: flex-end;
-  height: 160px;
-  padding: var(--space-2) var(--space-1) 0;
+  margin-bottom: var(--space-6);
 }
 
-.trend-col { flex: 1; display: flex; flex-direction: column; align-items: center; height: 100%; }
-
-.trend-bars {
+.ov-card {
   display: flex;
-  gap: 3px;
-  align-items: flex-end;
-  height: calc(100% - 22px);
-  width: 100%;
-  justify-content: center;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-4) var(--space-4) var(--space-5);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  text-decoration: none;
+  color: var(--color-text);
+  transition: border-color 150ms, background 150ms;
+  min-width: 0;
 }
 
-.trend-bar { width: 14px; border-radius: 3px 3px 0 0; min-height: 0; transition: height 200ms; }
+.ov-card:hover { border-color: var(--color-border-strong); background: var(--color-surface-subtle); }
 
-.trend-income { background: var(--color-income); }
-.trend-expense { background: var(--color-expense); opacity: 0.85; }
+.ov-card--warning { border-left: 3px solid var(--color-warning); }
+.ov-card--success { border-left: 3px solid var(--color-success); }
+.ov-card--brand { border-left: 3px solid var(--color-brand); }
 
-.trend-label {
+.ov-card-label {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-text-secondary);
+}
+
+.ov-card-value {
+  font-size: 26px;
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  line-height: var(--line-height-tight);
+}
+
+.ov-card--warning .ov-card-value { color: var(--color-warning); }
+.ov-card--success .ov-card-value { color: var(--color-success); }
+.ov-card--brand .ov-card-value { color: var(--color-brand); }
+
+.ov-card-hint {
   font-size: var(--font-size-xs);
   color: var(--color-text-tertiary);
-  margin-top: var(--space-1);
-  height: 16px;
-}
-
-.trend-legend {
-  display: inline-block;
-  width: 10px;
-  height: 10px;
-  border-radius: 2px;
-  margin-right: var(--space-1);
-  vertical-align: middle;
-}
-
-/* ============================================================
-   分类占比条
-   ============================================================ */
-.ratio-track {
-  height: 8px;
-  background: var(--color-bg);
-  border: 1px solid var(--color-border);
-  border-radius: 4px;
   overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.ratio-fill {
-  height: 100%;
-  background: var(--color-brand);
-  border-radius: 4px;
-  transition: width 200ms;
+/* 需要处理（P1） */
+.ov-work-section { margin-bottom: var(--space-6); }
+
+.ov-section-title {
+  font-size: var(--font-size-lg);
+  font-weight: var(--font-weight-semibold);
+  margin-bottom: var(--space-1);
 }
 
-/* ============================================================
-   兼容工具类（少量页面历史引用）
-   ============================================================ */
-.text-xl { font-size: var(--font-size-xl); }
-.font-bold { font-weight: var(--font-weight-bold); }
-.mb-4 { margin-bottom: var(--space-4); }
-.p-4 { padding: var(--space-4); }
+.ov-section-sub {
+  font-size: var(--font-size-md);
+  color: var(--color-text-tertiary);
+  margin-bottom: var(--space-3);
+}
+
+.ov-work-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: var(--space-3);
+}
+
+.ov-work-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  min-width: 0;
+}
+
+.ov-work-main { min-width: 0; }
+
+.ov-work-title {
+  font-size: var(--font-size-md);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-text);
+  margin-bottom: var(--space-1);
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.ov-work-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-warning);
+  background: var(--color-warning-soft);
+  border-radius: var(--radius-sm);
+  padding: 0 var(--space-2);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+}
+
+.ov-work-desc {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+  line-height: var(--line-height-normal);
+}
+
+.ov-work-action { flex-shrink: 0; }
+
+.ov-work-link {
+  font-size: var(--font-size-sm);
+  font-weight: var(--font-weight-medium);
+  color: var(--color-brand);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.ov-work-link:hover { text-decoration: underline; }
+
+.ov-work-done {
+  font-size: var(--font-size-sm);
+  color: var(--color-success);
+}
+
+.ov-all-done {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-md);
+  color: var(--color-success);
+}
+
+/* P2 双列 */
+.ov-two-col {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: var(--space-3);
+  margin-bottom: var(--space-6);
+  align-items: start;
+}
+
+/* P3 财务摘要 */
+.ov-fin-card { margin-bottom: var(--space-6); }
+
+.ov-fin-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: var(--space-4);
+}
+
+.ov-fin-item {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-width: 0;
+}
+
+.ov-fin-label {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-tertiary);
+}
+
+.ov-fin-value {
+  font-size: var(--font-size-xl);
+  font-weight: var(--font-weight-semibold);
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ov-fin-scope {
+  margin-top: var(--space-3);
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+}
+
+/* 空账本引导 */
+.ov-empty-ledger { text-align: left; margin-bottom: var(--space-6); }
+
+/* 最近活动 */
+.ov-activity-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+
+.ov-activity-item {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.ov-activity-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  align-self: center;
+}
+
+.ov-activity-dot.import { background: var(--color-brand); }
+.ov-activity-dot.export { background: var(--color-success); }
+
+.ov-activity-text {
+  font-size: var(--font-size-md);
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+
+.ov-activity-time {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-tertiary);
+  flex-shrink: 0;
+}
+
+/* Responsive */
+@media (max-width: 1024px) {
+  .ov-status-grid { grid-template-columns: repeat(2, 1fr); }
+  .ov-two-col { grid-template-columns: 1fr; }
+  .ov-fin-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 760px) {
+  .ov-status-grid { grid-template-columns: repeat(2, 1fr); gap: var(--space-2); }
+  .ov-card-value { font-size: var(--font-size-xl); }
+  .ov-card-hint { font-size: 10px; }
+  .ov-work-item { flex-direction: column; }
+  .ov-work-list { grid-template-columns: 1fr; }
+}
 
 /* ============================================================
    UI-4: Import Workflow
