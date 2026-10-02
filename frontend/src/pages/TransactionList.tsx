@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { apiFetch } from '../api/client';
 import { Badge, Button, EmptyState, ErrorState, LoadingState, PageHeader } from '../components/UIComponents';
@@ -24,18 +24,20 @@ const categoryAccountOf = (t: any): string => {
 };
 
 const TransactionList = () => {
-  const [txns, setTxns] = useState<any[]>([]);
   // URL query 既是既有契约（status），也承载 Drawer 选中（selected）
   const [searchParams, setSearchParams] = useSearchParams();
   const status = searchParams.get('status') ?? '';
   const selectedId = searchParams.get('selected');
   // status 筛选写入历史栈：刷新保持、浏览器 Back / Forward 可回退筛选；
   // selected（Drawer 选中）是瞬态覆盖，保持 replace 不污染历史
-  const setStatus = (next: string) => setSearchParams(prev => {
-    const p = new URLSearchParams(prev);
-    if (next) p.set('status', next); else p.delete('status');
-    return p;
-  });
+  const setStatus = (next: string) => {
+    setPage(1);
+    setSearchParams(prev => {
+      const p = new URLSearchParams(prev);
+      if (next) p.set('status', next); else p.delete('status');
+      return p;
+    });
+  };
   const openTxn = (id: number) => setSearchParams(prev => {
     const p = new URLSearchParams(prev);
     p.set('selected', String(id));
@@ -47,6 +49,17 @@ const TransactionList = () => {
     return p;
   }, { replace: true });
 
+  // 服务端分页 + 筛选（搜索/日期/状态全部由后端执行，前端只展示当前页）
+  const [data, setData] = useState<{
+    items: any[];
+    total: number;
+    page: number;
+    page_size: number;
+    status_counts: Record<string, number>;
+    grand_total: number;
+  } | null>(null);
+  const [page, setPage] = useState(1);
+  const [searchInput, setSearchInput] = useState('');
   const [search, setSearch] = useState('');
   const [dateFrom, setDateFrom] = useState('');
   const [dateTo, setDateTo] = useState('');
@@ -57,39 +70,45 @@ const TransactionList = () => {
   const [acting, setActing] = useState(false);
   const [confirmBatchDelete, setConfirmBatchDelete] = useState(false);
 
+  const PAGE_SIZE = 50;
+
+  // 搜索防抖：停顿 300ms 后才发起请求，避免每个字符打一次后端
+  useEffect(() => {
+    const t = setTimeout(() => { setPage(1); setSearch(searchInput.trim()); }, 300);
+    return () => clearTimeout(t);
+  }, [searchInput]);
+
   const load = useCallback(() => {
     setLoading(true);
     setError('');
-    apiFetch<any[]>('/api/transactions')
-      .then(setTxns)
+    const params = new URLSearchParams();
+    if (status) params.set('status', status);
+    if (search) params.set('search', search);
+    if (dateFrom) params.set('date_from', dateFrom);
+    if (dateTo) params.set('date_to', dateTo);
+    params.set('page', String(page));
+    params.set('page_size', String(PAGE_SIZE));
+    apiFetch<any>(`/api/transactions?${params}`)
+      .then((d: any) => {
+        // 批量删除等操作可能清空当前页：自动回落到最后一页
+        if (d.items.length === 0 && d.total > 0 && d.page > 1) {
+          setPage(Math.max(1, Math.ceil(d.total / d.page_size)));
+          return;
+        }
+        setData(d);
+      })
       .catch((e: Error) => setError(e.message))
       .finally(() => setLoading(false));
-  }, []);
+  }, [status, search, dateFrom, dateTo, page]);
 
   useEffect(() => { load(); }, [load]);
 
-  const statusCounts = useMemo(() => {
-    const acc: Record<string, number> = {};
-    txns.forEach(t => { acc[t.status] = (acc[t.status] || 0) + 1; });
-    return acc;
-  }, [txns]);
+  const visible = data?.items ?? []; // 当前页数据（筛选已由服务端完成）
+  const statusCounts = data?.status_counts ?? {}; // chips 计数（全局口径）
+  const grandTotal = data?.grand_total ?? 0;
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.page_size)) : 1;
 
-  const visible = useMemo(() => {
-    let list = txns;
-    if (status) list = list.filter(t => t.status === status);
-    if (search.trim()) {
-      const q = search.trim().toLowerCase();
-      list = list.filter(t =>
-        String(t.merchant ?? '').toLowerCase().includes(q) ||
-        String(t.description ?? '').toLowerCase().includes(q) ||
-        String(t.counterparty ?? '').toLowerCase().includes(q));
-    }
-    if (dateFrom) list = list.filter(t => (t.date ?? '') >= dateFrom);
-    if (dateTo) list = list.filter(t => (t.date ?? '') <= dateTo);
-    return list;
-  }, [txns, status, search, dateFrom, dateTo]);
-
-  const hasAnyFilter = Boolean(status || search.trim() || dateFrom || dateTo);
+  const hasAnyFilter = Boolean(status || search || dateFrom || dateTo);
 
   const toggle = (id: number) => {
     const next = new Set(checked);
@@ -157,7 +176,7 @@ const TransactionList = () => {
       {/* 状态 Filter Chips：是筛选不是 KPI */}
       <div className="filter-chips" role="tablist" aria-label="按状态筛选">
         <button className={`chip ${status === '' ? 'active' : ''}`} onClick={() => setStatus('')}>
-          全部<span className="chip-count">{txns.length}</span>
+          全部<span className="chip-count">{grandTotal}</span>
         </button>
         {STATUS_CHIPS.map(c => (
           <button
@@ -171,18 +190,18 @@ const TransactionList = () => {
         ))}
       </div>
 
-      {/* 搜索与过滤（客户端过滤全量数据，真实生效） */}
+      {/* 搜索与过滤（服务端执行：搜索匹配商户/描述/对方，日期为闭区间） */}
       <div className="filter-bar">
         <input
           type="search"
           placeholder="搜索交易、描述、对方…"
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={e => setSearchInput(e.target.value)}
           aria-label="搜索交易"
         />
-        <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)} aria-label="起始日期" />
+        <input type="date" value={dateFrom} onChange={e => { setPage(1); setDateFrom(e.target.value); }} aria-label="起始日期" />
         <span style={{ color: 'var(--color-text-tertiary)', fontSize: 'var(--font-size-sm)' }}>→</span>
-        <input type="date" value={dateTo} onChange={e => setDateTo(e.target.value)} aria-label="结束日期" />
+        <input type="date" value={dateTo} onChange={e => { setPage(1); setDateTo(e.target.value); }} aria-label="结束日期" />
       </div>
 
       {checked.size > 0 && (
@@ -209,11 +228,11 @@ const TransactionList = () => {
       {loading && <LoadingState />}
       {error && <ErrorState message={error} onRetry={load} />}
 
-      {!loading && !error && txns.length === 0 && (
+      {!loading && !error && grandTotal === 0 && (
         <EmptyState text="暂无交易。导入流水后，交易会显示在这里。" />
       )}
 
-      {!loading && !error && txns.length > 0 && visible.length === 0 && (
+      {!loading && !error && grandTotal > 0 && visible.length === 0 && (
         <EmptyState text={status
           ? `暂无${STATUS_LABEL[status] ?? ''}交易`
           : '没有符合条件的交易。尝试调整筛选条件或搜索关键词。'} />
@@ -281,6 +300,19 @@ const TransactionList = () => {
             })}
           </tbody>
         </table>
+      )}
+
+      {/* 分页 footer：服务端分页（安静的信息行，单页时按钮禁用隐藏噪音） */}
+      {!loading && !error && data && data.total > 0 && (
+        <div className="txn-pagination">
+          <span className="page-sub">
+            共 {data.total} 笔{hasAnyFilter ? `（筛选后）` : ''} · 第 {data.page} / {totalPages} 页
+          </span>
+          <span style={{ display: 'flex', gap: 'var(--space-2)' }}>
+            <Button variant="ghost" onClick={() => setPage(p => p - 1)} disabled={data.page <= 1}>上一页</Button>
+            <Button variant="ghost" onClick={() => setPage(p => p + 1)} disabled={data.page >= totalPages}>下一页</Button>
+          </span>
+        </div>
       )}
 
       {selectedTxnNum !== null && (

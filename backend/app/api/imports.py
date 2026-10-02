@@ -80,14 +80,21 @@ def _save_upload(file: UploadFile, db: Session, batch: ImportBatch) -> tuple[str
 
 
 def _analyze_rows(db: Session, importer, raw_data_list: list[dict], db_file: DBFile) -> dict:
-    """对解析出的行做 Normalize + Dedup 分析。只统计，不写 Transaction。"""
+    """对解析出的行做 Normalize + Dedup 分析。只统计，不写 Transaction。
+
+    返回行级明细三层结构（前端可按需取用）：
+    - rows：全部行逐条明细（kind: new/existing/possible_duplicate/invalid），供导入大账单逐行核对
+    - duplicates / invalid_rows：问题行子集（既有契约保留），供问题导向筛选
+    """
     dedup = DeduplicationService()
     stats = {"total": 0, "new": 0, "existing": 0, "possible_duplicate": 0, "invalid": 0}
     invalid_rows: list[dict] = []
     duplicates: list[dict] = []
+    rows: list[dict] = []
 
     for idx, row in enumerate(raw_data_list, start=1):
         stats["total"] += 1
+        raw_preview = {k: (str(v)[:40] if v else "") for k, v in row.items()}
         try:
             norm = importer.normalize(row)
             if not norm.date or not norm.amount or not norm.source_transaction_id:
@@ -97,7 +104,12 @@ def _analyze_rows(db: Session, importer, raw_data_list: list[dict], db_file: DBF
             invalid_rows.append({
                 "row_number": idx,
                 "error": str(e),
-                "raw": {k: (str(v)[:40] if v else "") for k, v in row.items()},
+                "raw": raw_preview,
+            })
+            rows.append({
+                "row_number": idx, "kind": "invalid",
+                "date": None, "merchant": None, "amount": None, "direction": None,
+                "error": str(e), "raw": raw_preview,
             })
             continue
 
@@ -109,9 +121,24 @@ def _analyze_rows(db: Session, importer, raw_data_list: list[dict], db_file: DBF
             db, norm.model_dump(), importer.name.upper()
         ) is not None:
             result, reason = "POSSIBLE_DUPLICATE", "CROSS_SOURCE"
+
         if result == "UNIQUE":
-            stats["new"] += 1
+            kind = "new"
         elif result == "EXACT_DUPLICATE":
+            kind = "existing"
+        else:
+            kind = "possible_duplicate"
+        rows.append({
+            "row_number": idx, "kind": kind,
+            "date": norm.date, "merchant": norm.merchant,
+            "amount": str(norm.amount), "direction": norm.direction,
+            "reason": reason if kind == "possible_duplicate" else None,
+            "raw": raw_preview,
+        })
+
+        if kind == "new":
+            stats["new"] += 1
+        elif kind == "existing":
             stats["existing"] += 1
         else:
             stats["possible_duplicate"] += 1
@@ -121,10 +148,10 @@ def _analyze_rows(db: Session, importer, raw_data_list: list[dict], db_file: DBF
                 "merchant": norm.merchant,
                 "amount": str(norm.amount),
                 "reason": reason,
-                "raw": {k: (str(v)[:40] if v else "") for k, v in row.items()},
+                "raw": raw_preview,
             })
 
-    return {"stats": stats, "invalid_rows": invalid_rows, "duplicates": duplicates}
+    return {"stats": stats, "invalid_rows": invalid_rows, "duplicates": duplicates, "rows": rows}
 
 
 @router.post("/analyze")

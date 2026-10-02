@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session, joinedload
 from app.db.session import get_db
 from app.models.models import Transaction, TransactionSplit, AuditLog, ExportRecord
@@ -20,12 +21,77 @@ def _get_txn(db: Session, txn_id: int) -> Transaction:
     return txn
 
 
+@router.get("/counts")
+def get_transaction_counts(db: Session = Depends(get_db)):
+    """各状态交易计数（Sidebar Badge / 列表 chips 的轻量数据源，避免拉全量）。"""
+    rows = (
+        db.query(Transaction.status, func.count(Transaction.id))
+        .group_by(Transaction.status)
+        .all()
+    )
+    return {s: c for s, c in rows if s}
+
+
 @router.get("/")
-def get_transactions(status: Optional[str] = Query(None), db: Session = Depends(get_db)):
+def get_transactions(
+    status: Optional[str] = Query(None),
+    page: Optional[int] = Query(None, ge=1),
+    page_size: Optional[int] = Query(None, ge=1, le=200),
+    search: Optional[str] = Query(None),
+    date_from: Optional[str] = Query(None),
+    date_to: Optional[str] = Query(None),
+    db: Session = Depends(get_db),
+):
+    """交易列表。
+
+    双契约（渐进迁移）：
+    - 不带 page/page_size：兼容旧契约，返回全量裸数组（Sidebar/Dashboard/ExportPage）
+    - 带 page 或 page_size：分页模式，返回 {items, total, page, page_size, status_counts,
+      grand_total}；status_counts 为全局计数（不受当前筛选影响，chips 展示用）；
+      排序 date DESC, id DESC（审核工作台：最新交易优先）。
+    search 匹配 merchant/description/counterparty；date_from/date_to 按 YYYY-MM-DD 闭区间。
+    """
     query = db.query(Transaction).options(joinedload(Transaction.splits))
     if status:
         query = query.filter(Transaction.status == status)
-    return query.all()
+    if search and search.strip():
+        like = f"%{search.strip()}%"
+        query = query.filter(or_(
+            Transaction.merchant.like(like),
+            Transaction.description.like(like),
+            Transaction.counterparty.like(like),
+        ))
+    if date_from:
+        query = query.filter(Transaction.date >= date_from)
+    if date_to:
+        query = query.filter(Transaction.date <= date_to)
+
+    # 旧契约：全量裸数组（按 id 稳定排序，等价于历史 rowid 序）
+    if page is None and page_size is None:
+        return query.order_by(Transaction.id).all()
+
+    page = page or 1
+    page_size = page_size or 50
+    total = query.count()
+    items = (
+        query.order_by(Transaction.date.desc(), Transaction.id.desc())
+        .offset((page - 1) * page_size)
+        .limit(page_size)
+        .all()
+    )
+    status_counts = dict(
+        db.query(Transaction.status, func.count(Transaction.id))
+        .group_by(Transaction.status)
+        .all()
+    )
+    return {
+        "items": items,
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "status_counts": status_counts,
+        "grand_total": sum(status_counts.values()),
+    }
 
 
 @router.get("/{txn_id}")

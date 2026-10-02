@@ -14,6 +14,7 @@ type AnalyzeResult = {
   stats: { total: number; new: number; existing: number; possible_duplicate: number; invalid: number };
   invalid_rows: { row_number: number; error: string; raw: Record<string, string> }[];
   duplicates: { row_number: number; date: string; merchant: string; amount: string; reason: string; raw: Record<string, string> }[];
+  rows?: AnalyzeRow[];
 };
 
 type CommitResult = {
@@ -169,6 +170,7 @@ const ImportPage = () => {
         <ImportAnalysisSummary stats={s} />
 
         <ImportAnalysisTable
+          rows={analysis.rows ?? []}
           duplicates={analysis.duplicates.map(d => ({
             row_number: d.row_number, date: d.date, merchant: d.merchant, amount: d.amount, reason: d.reason, raw: d.raw,
           } satisfies AnalyzeRow))}

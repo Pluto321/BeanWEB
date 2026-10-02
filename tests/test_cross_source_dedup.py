@@ -140,6 +140,10 @@ def test_commit_flags_cross_source_duplicate(db_session, tmp_path, monkeypatch):
     assert result["stats"]["possible_duplicate"] == 1
     assert result["duplicates"][0]["reason"] == "CROSS_SOURCE"
     assert result["duplicates"][0]["row_number"] == 1
+    # 行级明细：命中行 kind=possible_duplicate 且带 reason，其余行为 new
+    kinds = {r["row_number"]: r["kind"] for r in result["rows"]}
+    assert kinds == {1: "possible_duplicate", 2: "new", 3: "new"}
+    assert result["rows"][0]["reason"] == "CROSS_SOURCE"
 
     commit_import(result["import_id"], db_session)
     flagged = (db_session.query(Transaction)

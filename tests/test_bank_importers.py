@@ -159,6 +159,12 @@ def test_analyze_commit_roundtrip(db_session, tmp_path, monkeypatch):
     assert result["parser"] == "boc"
     assert result["batch_status"] == "PENDING_ANALYZED"
     assert result["stats"] == {"total": 3, "new": 3, "existing": 0, "possible_duplicate": 0, "invalid": 0}
+    # 行级明细：全部行逐条可核对（kind 与 stats 一致）
+    assert [(r["kind"], r["row_number"]) for r in result["rows"]] == [
+        ("new", 1), ("new", 2), ("new", 3),
+    ]
+    assert result["rows"][0]["merchant"] == "财付通-测试超市"
+    assert result["rows"][0]["direction"] == "支出"
 
     batch_id = result["import_id"]
     committed = commit_import(batch_id, db_session)
@@ -193,6 +199,8 @@ def test_analyze_commit_roundtrip(db_session, tmp_path, monkeypatch):
     assert result2["stats"]["existing"] == 3
     assert result2["stats"]["new"] == 0
     assert result2["stats"]["invalid"] == 0
+    # 行级明细 kind 同步反映 existing
+    assert {r["kind"] for r in result2["rows"]} == {"existing"}
 
 
 # ---------- 真实账单冒烟（账本/ 已 gitignore，仅本地存在时运行） ----------
