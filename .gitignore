@@ -3,6 +3,9 @@
 *.xlsx
 *.xls
 *.csv
+# 例外：合成测试 fixture（generate_*_fixture.py 生成，无真实数据）
+!tests/fixtures/*.xlsx
+!tests/fixtures/*.csv
 
 # 运行时数据（数据库、原始文件、生成账本）
 *.db

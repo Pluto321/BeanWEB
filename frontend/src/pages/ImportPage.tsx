@@ -95,7 +95,7 @@ const ImportPage = () => {
   if (phase === 'select' || phase === 'analyzing') {
     return (
       <div>
-        <PageHeader title="导入" description="将支付宝、银行等流水导入 BeanWEB" />
+        <PageHeader title="导入" description="将支付宝、微信、银行等流水导入 BeanWEB" />
         <ImportStepper step={phase} />
         {error && <ErrorState message={`分析失败：${error}`} onRetry={analyze} />}
 
@@ -112,12 +112,12 @@ const ImportPage = () => {
               onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0] ?? null); }}
             >
               <div className="dropzone-title">选择流水文件</div>
-              <div className="dropzone-hint">点击选择或拖入文件 · 支持 CSV（支付宝，自动识别编码与表头）和 PDF（中国银行借记卡 / 建设银行信用卡流水）</div>
+              <div className="dropzone-hint">点击选择或拖入文件 · 支持 CSV（支付宝）、PDF（中国银行借记卡 / 建设银行信用卡流水）和 XLSX（微信账单）</div>
               <label className="btn btn-primary dropzone-btn">
                 选择文件
                 <input
                   type="file"
-                  accept=".csv,.pdf"
+                  accept=".csv,.pdf,.xlsx"
                   onChange={e => pickFile(e.target.files?.[0] ?? null)}
                   aria-label="选择流水文件"
                   style={{ display: 'none' }}
@@ -149,7 +149,7 @@ const ImportPage = () => {
 
     return (
       <div>
-        <PageHeader title="导入" description="将支付宝、银行等流水导入 BeanWEB" />
+        <PageHeader title="导入" description="将支付宝、微信、银行等流水导入 BeanWEB" />
         <ImportStepper step={phase} />
         {error && <ErrorState message={`导入失败：${error}`} onRetry={commit} />}
 
@@ -199,7 +199,7 @@ const ImportPage = () => {
     const s = analysis?.stats;
     return (
       <div>
-        <PageHeader title="导入" description="将支付宝、银行等流水导入 BeanWEB" />
+        <PageHeader title="导入" description="将支付宝、微信、银行等流水导入 BeanWEB" />
         <ImportStepper step={phase} />
 
         <Card>
