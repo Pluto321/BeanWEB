@@ -13,6 +13,7 @@ from app.models.models import Account
 from app.core.config import settings
 import app.services.alipay_importer  # noqa: F401  注册内置 Importer
 import app.services.bank_importers  # noqa: F401  注册银行账单 Importer（BOC/CCB PDF）
+import app.services.wechat_importer  # noqa: F401  注册微信账单 Importer（xlsx）
 
 router = APIRouter(prefix="/api/imports")
 storage = StorageService()
