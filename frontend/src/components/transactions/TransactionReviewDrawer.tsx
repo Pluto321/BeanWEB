@@ -49,8 +49,10 @@ export const TransactionReviewDrawer = ({ txnId, onClose, onChanged }: {
       .then(([t, accs, exps]) => {
         setTxn(t);
         setAccounts((accs ?? []).map((a: any) => (typeof a === 'string' ? a : a.name)));
+        // 金额按幅值进入编辑器（DB 中导入生成的 payment 腿带符号：支出为负、收入为正；
+        // PUT /splits 与本编辑器的约定是正数幅值，符号由 direction 在导出/预览时决定）
         const all: { account: string; amount: string; role?: string }[] =
-          (t.splits ?? []).map((s: any) => ({ account: s.account, amount: s.amount, role: s.role }));
+          (t.splits ?? []).map((s: any) => ({ account: s.account, amount: String(Math.abs(Number(s.amount))), role: s.role }));
         setPaymentRows(all
           .filter((s: { account: string; role?: string }) => s.role ? s.role === 'payment' : s.account.startsWith('Assets:'))
           .map((s: { account: string; amount: string }) => ({ account: s.account, amount: s.amount })));

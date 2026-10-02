@@ -8,3 +8,5 @@ python-multipart
 pytest
 pandas
 beancount
+pdfplumber
+reportlab  # 仅用于生成 tests/fixtures 下的银行 PDF 测试账单

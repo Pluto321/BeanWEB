@@ -32,18 +32,9 @@ class BaseImporter(ABC):
     @abstractmethod
     def normalize(self, raw_data: Dict) -> NormalizedTransaction: ...
 
-
-class ImporterRegistry:
-    _importers: List[BaseImporter] = []
-
-    @classmethod
-    def register(cls, importer: BaseImporter):
-        cls._importers.append(importer)
-
-    @classmethod
-    def get_importer(cls, file_path: str) -> BaseImporter:
-        """用文件首行真实内容匹配 Importer，而不是依赖文件名。
-        依次尝试常见编码（UTF-8 / GBK），以实际能正确解码的为准。"""
+    def matches_file(self, file_path: str) -> bool:
+        """判断本 Importer 能否处理该文件。默认实现按 CSV 首行表头探测；
+        PDF 等 二进制格式的 Importer 覆写此方法（先做魔数校验再解析内容签名）。"""
         for encoding in ("utf-8-sig", "gbk"):
             try:
                 with open(file_path, "r", encoding=encoding) as f:
@@ -55,7 +46,23 @@ class ImporterRegistry:
             with open(file_path, "r", encoding="utf-8", errors="replace") as f:
                 first_line = f.readline()
         headers = [h.strip() for h in first_line.strip().split(",") if h.strip()]
+        return self.detect({h: "" for h in headers})
+
+
+class ImporterRegistry:
+    _importers: List[BaseImporter] = []
+
+    @classmethod
+    def register(cls, importer: BaseImporter):
+        cls._importers.append(importer)
+
+    @classmethod
+    def get_importer(cls, file_path: str) -> BaseImporter:
+        """按注册顺序逐个调用 matches_file（表头/内容签名探测，不依赖文件名）。"""
         for imp in cls._importers:
-            if imp.detect({h: "" for h in headers}):
-                return imp
+            try:
+                if imp.matches_file(file_path):
+                    return imp
+            except Exception:
+                continue
         raise ValueError("无法识别账单来源：没有任何 Importer 能处理此文件")

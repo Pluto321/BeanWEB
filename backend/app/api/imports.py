@@ -12,19 +12,25 @@ from app.services.rule_service import RuleService
 from app.models.models import Account
 from app.core.config import settings
 import app.services.alipay_importer  # noqa: F401  注册内置 Importer
+import app.services.bank_importers  # noqa: F401  注册银行账单 Importer（BOC/CCB PDF）
 
 router = APIRouter(prefix="/api/imports")
 storage = StorageService()
 
 
 def match_payment_account(db: Session, payment_method: str | None) -> str | None:
-    """按收/付款方式文本与账户 aliases（及账户名本身）模糊匹配 Assets 账户。
+    """按收/付款方式文本与账户 aliases（及账户名本身）模糊匹配账户。
+    扫描 Assets（借记卡/钱包）与 Liabilities（信用卡）——信用卡账单的付款账户是负债账户。
     返回最匹配的账户名；无匹配返回 None（由默认账户兜底）。"""
     if not payment_method:
         return None
     text = payment_method.lower()
     best: tuple[int, str] | None = None
-    accounts = db.query(Account).filter(Account.name.startswith("Assets:")).all()
+    accounts = (
+        db.query(Account)
+        .filter(Account.name.startswith("Assets:") | Account.name.startswith("Liabilities:"))
+        .all()
+    )
     for acc in accounts:
         candidates = [acc.name.lower()] + [str(a).lower() for a in (acc.aliases or [])]
         for kw in candidates:
@@ -220,7 +226,11 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
         else:
             review_required_status = "REVIEW_REQUIRED"
 
-        actions = engine.apply(norm.model_dump())
+        # 收入行的分类腿用默认收入账户；规则引擎只服务支出侧分类
+        if norm.direction == "收入":
+            category_account = settings.DEFAULT_INCOME_ACCOUNT
+        else:
+            category_account = engine.apply(norm.model_dump()).get("account", "Expenses:Uncategorized")
         txn = Transaction(
             raw_transaction_id=raw.id,
             date=norm.date,
@@ -241,13 +251,13 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
         db.add(txn)
         db.flush()
 
-        # 支付账户：按收/付款方式自动匹配 Assets 账户（账户管理 aliases）；
+        # 支付账户：按收/付款方式自动匹配 Assets/Liabilities 账户（账户管理 aliases）；
         # 无匹配时回落到系统默认 Assets 账户，保证每笔导入交易都有支付分录
         payment_account = match_payment_account(db, norm.payment_method) or settings.DEFAULT_ASSETS_ACCOUNT
 
         db.add(TransactionSplit(
             transaction_id=txn.id,
-            account=actions.get("account", "Expenses:Uncategorized"),
+            account=category_account,
             amount=str(norm.amount),
             role="expense",
         ))
@@ -387,7 +397,11 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
             else:
                 status = "REVIEW_REQUIRED"
 
-            actions = engine.apply(norm.model_dump())
+            # 收入行的分类腿用默认收入账户；规则引擎只服务支出侧分类
+            if norm.direction == "收入":
+                category_account = settings.DEFAULT_INCOME_ACCOUNT
+            else:
+                category_account = engine.apply(norm.model_dump()).get("account", "Expenses:Uncategorized")
             txn = Transaction(
                 raw_transaction_id=raw.id,
                 date=norm.date,
@@ -410,7 +424,7 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
             payment_account = match_payment_account(db, norm.payment_method) or settings.DEFAULT_ASSETS_ACCOUNT
             db.add(TransactionSplit(
                 transaction_id=txn.id,
-                account=actions.get("account", "Expenses:Uncategorized"),
+                account=category_account,
                 amount=str(norm.amount),
                 role="expense",
             ))
