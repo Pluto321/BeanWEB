@@ -1274,6 +1274,12 @@ input:disabled, select:disabled {
 .txn-sub { color: var(--color-text-tertiary); font-size: var(--font-size-sm); margin-top: 1px; }
 .txn-acct { color: var(--color-text-secondary); font-size: var(--font-size-md); }
 
+/* UI-3A Mobile：交易表保留核心列（复选/日期/对方/金额/状态），次要列折叠隐藏 */
+@media (max-width: 760px) {
+  .txn-table .hide-md { display: none; }
+  .txn-table td, .txn-table th { padding-left: var(--space-2); padding-right: var(--space-2); }
+}
+
 /* Review Drawer */
 .review-drawer-mask {
   display: none;
@@ -1418,7 +1424,8 @@ input:disabled, select:disabled {
 
 .allocation-total {
   display: flex;
-  justify-content: flex-end;
+  /* label 居左、金额居右：同一 flex 行内的明确布局系统，金额始终右对齐 */
+  justify-content: space-between;
   align-items: baseline;
   gap: var(--space-2);
   padding-top: var(--space-2);
