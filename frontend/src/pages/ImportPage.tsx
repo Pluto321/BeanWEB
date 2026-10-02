@@ -31,6 +31,8 @@ const SOURCE_LABEL: Record<string, string> = {
   ALIPAY: '支付宝',
   BANK: '银行',
   WECHAT: '微信支付',
+  BOC: '中国银行（借记卡）',
+  CCB: '建设银行（信用卡）',
 };
 
 const ImportPage = () => {
@@ -110,12 +112,12 @@ const ImportPage = () => {
               onDrop={e => { e.preventDefault(); setDragOver(false); pickFile(e.dataTransfer.files?.[0] ?? null); }}
             >
               <div className="dropzone-title">选择流水文件</div>
-              <div className="dropzone-hint">点击选择或拖入文件 · 支持支付宝导出的 CSV（自动识别编码与表头）</div>
+              <div className="dropzone-hint">点击选择或拖入文件 · 支持 CSV（支付宝，自动识别编码与表头）和 PDF（中国银行借记卡 / 建设银行信用卡流水）</div>
               <label className="btn btn-primary dropzone-btn">
                 选择文件
                 <input
                   type="file"
-                  accept=".csv"
+                  accept=".csv,.pdf"
                   onChange={e => pickFile(e.target.files?.[0] ?? null)}
                   aria-label="选择流水文件"
                   style={{ display: 'none' }}

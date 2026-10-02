@@ -36,7 +36,9 @@ const TransactionDetail = () => {
         // /api/accounts 返回 {name, aliases, open_date} 对象数组；此处只需要账户名字符串列表
         setAccounts((accs ?? []).map((a: any) => (typeof a === 'string' ? a : a.name)));
         // 优先按 role 区分支付/分类账户；历史数据无 role 时按 Assets: 前缀推断
-        const all: { account: string; amount: string; role?: string }[] = (t.splits ?? []).map((s: any) => ({ account: s.account, amount: s.amount, role: s.role }));
+        // 金额按幅值进入编辑器（DB 中导入生成的 payment 腿带符号：支出为负、收入为正；
+        // PUT /splits 与本编辑器的约定是正数幅值，符号由 direction 在导出/预览时决定）
+        const all: { account: string; amount: string; role?: string }[] = (t.splits ?? []).map((s: any) => ({ account: s.account, amount: String(Math.abs(Number(s.amount))), role: s.role }));
         setPaymentRows(all.filter((s: { account: string; role?: string }) => s.role ? s.role === 'payment' : s.account.startsWith('Assets:')).map((s: { account: string; amount: string }) => ({ account: s.account, amount: s.amount })));
         setExpenseRows(all.filter((s: { account: string; role?: string }) => s.role ? s.role !== 'payment' : !s.account.startsWith('Assets:')).map((s: { account: string; amount: string }) => ({ account: s.account, amount: s.amount })));
         setHasActiveExport((exps.items ?? []).some((e: any) => e.status === 'EXPORTED'));

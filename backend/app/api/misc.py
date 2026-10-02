@@ -25,6 +25,8 @@ def config_defaults():
         "source_defaults": {
             "ALIPAY": settings.DEFAULT_ASSETS_ACCOUNT,
             "BANK": settings.DEFAULT_ASSETS_ACCOUNT,
+            "BOC": settings.DEFAULT_ASSETS_ACCOUNT,
+            "CCB": settings.DEFAULT_ASSETS_ACCOUNT,
         },
     }
 
