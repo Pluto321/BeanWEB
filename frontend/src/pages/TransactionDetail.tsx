@@ -6,6 +6,14 @@ import { Badge, Button, Card, ErrorState, LoadingState } from '../components/UIC
 
 type SplitRow = { account: string; amount: string };
 
+const CHANNEL_LABEL: Record<string, string> = {
+  ALIPAY: '支付宝',
+  WECHAT: '微信支付',
+  BOC: '中国银行',
+  CCB: '建设银行',
+  BANK: '银行',
+};
+
 const TransactionDetail = () => {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -147,13 +155,16 @@ const TransactionDetail = () => {
   };
 
   // 前端预览 Beancount 分录：与后端 render_preview() 口径一致
+  // （普通展示带渠道 metadata，隐藏追踪 id/raw_id；导出文件仍保留追踪 ID）
   const beanPreview = useMemo(() => {
     if (!txn) return '';
     const lines: string[] = [];
     const date = txn.date || '____-__-__';
     lines.push(`${date} * "${txn.merchant ?? ''}" "${txn.description ?? ''}"`);
-    lines.push(`  id: "${txn.id}"`);
-    if (txn.raw_transaction_id) lines.push(`  raw_id: "${txn.raw_transaction_id}"`);
+    if (txn.source_type) {
+      const channel = CHANNEL_LABEL[txn.source_type] ?? txn.source_type;
+      lines.push(`  channel: "${channel}"`);
+    }
 
     const expense = expenseRows.map(r => ({ account: r.account, amount: Number(r.amount || 0) }));
     const payment = paymentRows.map(r => ({ account: r.account, amount: Number(r.amount || 0) }));

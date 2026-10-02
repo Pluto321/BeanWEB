@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 from app.models.models import ExportRecord, Transaction, TransactionSplit, AuditLog
 from app.services.generator import BeancountGenerator
 from app.services.ledger import LedgerManager
+from app.services.importer import SOURCE_CHANNEL_LABELS
 from app.core.config import settings
 
 
@@ -245,6 +246,10 @@ class ExportService:
             raise ValueError("Transaction has no splits, cannot export")
 
         lines = [f'{txn.date} * "{txn.merchant or ""}" "{txn.description or ""}"']
+        # 渠道 metadata：账单来源的中文标签（channel 键仅 ASCII，值可为中文）
+        if getattr(txn, "source_type", None):
+            channel = SOURCE_CHANNEL_LABELS.get(txn.source_type, txn.source_type)
+            lines.append(f'  channel: "{channel}"')
         lines.append(f'  id: "{txn.id}"')
         if txn.raw_transaction_id:
             lines.append(f'  raw_id: "{txn.raw_transaction_id}"')
@@ -279,6 +284,8 @@ class ExportService:
             signed += [(acc, _sign_payment(val)) for acc, val in payment_splits]
 
         for acc, val in signed:
+            # 金额统一量化到分（与 BeancountGenerator 同口径；微信账单的整数金额 3 → 3.00）
+            val = val.quantize(Decimal("0.01"))
             lines.append(f'  {acc:<32} {val:>12} {txn.currency}')
         return "\n".join(lines)
 
