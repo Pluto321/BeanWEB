@@ -1,4 +1,4 @@
-# 真实账单与隐私数据
+﻿# 真实账单与隐私数据
 账本/
 *.xlsx
 *.xls
@@ -12,6 +12,7 @@ storage/raw/
 backend/storage/
 backend/ledgers/
 backend/temp_*
+/temp_*
 
 # 环境与缓存
 .env

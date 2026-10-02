@@ -1,12 +1,11 @@
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-import os
 
-# 使用当前目录的绝对路径，确保在不同运行环境下能定位到 beanweb.db
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-DATABASE_URL = f"sqlite:///{os.path.join(BASE_DIR, 'beanweb.db')}"
+from app.core.config import settings
 
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# DATABASE_URL 来自 settings（config.py 默认指向 backend/beanweb.db，
+# 可用环境变量 DATABASE_URL 覆盖——测试/E2E 以此隔离数据库，绝不触碰真实账本）
+engine = create_engine(settings.DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
