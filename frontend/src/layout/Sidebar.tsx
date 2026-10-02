@@ -50,12 +50,10 @@ export const Sidebar = ({ onNavigate }: { onNavigate?: () => void }) => {
   const [counts, setCounts] = useState<Record<string, number>>({});
 
   useEffect(() => {
-    // 复用现有交易列表 API 计算侧栏 Badge（只读，不改后端）
-    apiFetch<any[]>('/api/transactions')
-      .then((txns: any[]) => {
-        const acc: Record<string, number> = {};
-        txns.forEach((t: any) => { acc[t.status] = (acc[t.status] || 0) + 1; });
-        setCounts(acc);
+    // 轻量计数端点计算侧栏 Badge（避免每次导航拉全量交易列表）
+    apiFetch<Record<string, number>>('/api/transactions/counts')
+      .then((counts: Record<string, number>) => {
+        setCounts(counts);
       })
       .catch(() => { /* Badge 非关键信息，失败静默 */ });
   }, [location.pathname, location.search]);

@@ -1280,6 +1280,16 @@ input:disabled, select:disabled {
   .txn-table td, .txn-table th { padding-left: var(--space-2); padding-right: var(--space-2); }
 }
 
+/* 分页 footer（服务端分页）：安静的信息行 */
+.txn-pagination {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+  padding-top: var(--space-4);
+}
+
 /* Review Drawer */
 .review-drawer-mask {
   display: none;
