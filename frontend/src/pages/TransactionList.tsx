@@ -11,6 +11,8 @@ const STATUS_CHIPS: { key: string; label: string }[] = [
   { key: 'IGNORED', label: '已忽略' },
 ];
 
+const STATUS_LABEL: Record<string, string> = Object.fromEntries(STATUS_CHIPS.map(c => [c.key, c.label]));
+
 const paymentAccountOf = (t: any): string => {
   const p = (t.splits ?? []).find((s: any) => s.role === 'payment' || (!s.role && String(s.account).startsWith('Assets:')));
   return p?.account ?? '';
@@ -27,11 +29,13 @@ const TransactionList = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const status = searchParams.get('status') ?? '';
   const selectedId = searchParams.get('selected');
+  // status 筛选写入历史栈：刷新保持、浏览器 Back / Forward 可回退筛选；
+  // selected（Drawer 选中）是瞬态覆盖，保持 replace 不污染历史
   const setStatus = (next: string) => setSearchParams(prev => {
     const p = new URLSearchParams(prev);
     if (next) p.set('status', next); else p.delete('status');
     return p;
-  }, { replace: true });
+  });
   const openTxn = (id: number) => setSearchParams(prev => {
     const p = new URLSearchParams(prev);
     p.set('selected', String(id));
@@ -146,8 +150,8 @@ const TransactionList = () => {
   return (
     <div>
       <PageHeader
-        title="交易"
-        description="查看、分类并审核导入的交易流水"
+        title="交易明细"
+        description="查看、筛选并处理已导入的交易"
       />
 
       {/* 状态 Filter Chips：是筛选不是 KPI */}
@@ -210,7 +214,9 @@ const TransactionList = () => {
       )}
 
       {!loading && !error && txns.length > 0 && visible.length === 0 && (
-        <EmptyState text="没有符合条件的交易。尝试调整筛选条件或搜索关键词。" />
+        <EmptyState text={status
+          ? `暂无${STATUS_LABEL[status] ?? ''}交易`
+          : '没有符合条件的交易。尝试调整筛选条件或搜索关键词。'} />
       )}
 
       {!loading && !error && visible.length > 0 && (
@@ -221,9 +227,9 @@ const TransactionList = () => {
                 <input type="checkbox" checked={checked.size === visible.length && visible.length > 0} onChange={toggleAll} aria-label="全选" />
               </th>
               <th>日期</th>
-              <th>交易</th>
-              <th>分类</th>
-              <th>付款账户</th>
+              <th>交易对方</th>
+              <th className="hide-md">分类 / 账户</th>
+              <th className="hide-md">支付方式</th>
               <th className="amount-col">金额</th>
               <th style={{ width: 92 }}>状态</th>
             </tr>
@@ -255,11 +261,17 @@ const TransactionList = () => {
                   <td>
                     <div className="txn-main" style={ignored ? { textDecoration: 'line-through' } : undefined}>{t.merchant ?? '未指定商户'}</div>
                     <div className="txn-sub">
-                      {[t.payment_method, t.description].filter(Boolean).join(' · ') || '—'}
+                      {[
+                        t.description,
+                        t.counterparty && t.counterparty !== t.merchant ? t.counterparty : '',
+                      ].filter(Boolean).join(' · ') || '—'}
                     </div>
                   </td>
-                  <td className="txn-acct">{categoryAccountOf(t) || <span style={{ color: 'var(--color-text-tertiary)' }}>未分类</span>}</td>
-                  <td className="txn-acct">{paymentAccountOf(t) || <span style={{ color: 'var(--color-text-tertiary)' }}>默认</span>}</td>
+                  <td className="txn-acct hide-md">
+                    <div>{categoryAccountOf(t) || <span style={{ color: 'var(--color-text-tertiary)' }}>未分类</span>}</div>
+                    <div className="txn-sub">{paymentAccountOf(t) || <span style={{ color: 'var(--color-text-tertiary)' }}>默认账户</span>}</div>
+                  </td>
+                  <td className="txn-acct hide-md">{t.payment_method || <span style={{ color: 'var(--color-text-tertiary)' }}>—</span>}</td>
                   <td className={isIncome ? 'amount-cell td-amount-in' : 'amount-cell td-amount-out'}>
                     {isIncome ? '+' : ''}{t.amount} {t.currency}
                   </td>
