@@ -5,6 +5,16 @@ from typing import Dict, List
 
 from pydantic import BaseModel
 
+# 来源 → 渠道中文名：导出分录 channel metadata 与前端预览共用
+# （beancount metadata 键仅支持 ASCII，故用 channel，值为中文标签）
+SOURCE_CHANNEL_LABELS = {
+    "ALIPAY": "支付宝",
+    "WECHAT": "微信支付",
+    "BOC": "中国银行",
+    "CCB": "建设银行",
+    "BANK": "银行",
+}
+
 
 class NormalizedTransaction(BaseModel):
     source_transaction_id: str

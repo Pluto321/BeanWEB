@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from app.models.models import Transaction
+from app.services.importer import SOURCE_CHANNEL_LABELS
 
 
 class BeancountGenerator:
@@ -16,7 +17,10 @@ class BeancountGenerator:
         description = txn.description or ""
         lines.append(f'{txn.date} * "{payee}" "{description}"')
 
-        # Metadata
+        # Metadata：渠道（来源中文标签）+ 追踪 ID
+        if getattr(txn, "source_type", None):
+            channel = SOURCE_CHANNEL_LABELS.get(txn.source_type, txn.source_type)
+            lines.append(f'  channel: "{channel}"')
         lines.append(f'  id: "{txn.id}"')
         if txn.raw_transaction_id:
             lines.append(f'  raw_id: "{txn.raw_transaction_id}"')

@@ -290,6 +290,7 @@ def test_ccb_liabilities_full_path_to_beancount(db_session, tmp_path, monkeypatc
     postings = _postings(content)
     assert postings == {"Expenses:Uncategorized": Decimal("20.80"), "Liabilities:CCB:6207": Decimal("-20.80")}
     assert sum(postings.values()) == 0, "分录必须借贷平衡"
+    assert 'channel: "建设银行"' in content  # 导出分录带渠道 metadata
 
 
 def test_income_and_expense_category_export_regression(db_session, tmp_path, monkeypatch):

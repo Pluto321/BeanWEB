@@ -20,6 +20,14 @@ const DIRECTION_HINT: Record<string, string> = {
   IGNORED: '已忽略，不会导出到账本。',
 };
 
+const CHANNEL_LABEL: Record<string, string> = {
+  ALIPAY: '支付宝',
+  WECHAT: '微信支付',
+  BOC: '中国银行',
+  CCB: '建设银行',
+  BANK: '银行',
+};
+
 /** Review Drawer：理解 + 审核 + 确认，全部调用现有业务 API。 */
 export const TransactionReviewDrawer = ({ txnId, onClose, onChanged }: {
   txnId: number;
@@ -149,10 +157,12 @@ export const TransactionReviewDrawer = ({ txnId, onClose, onChanged }: {
   const expenseOk = expenseRows.length === 0 || Math.abs(expenseTotal - txnAmount) < 0.005;
   const allocationValid = paymentOk && expenseOk;
 
-  // 与后端 render_preview 同口径的分录结构
+  // 与后端 render_preview 同口径的分录结构（普通展示：渠道 metadata，隐藏追踪 id）
   const preview = useMemo(() => {
     if (!txn) return { head: '', meta: [] as string[], postings: [] as { account: string; amount: number }[] };
-    const meta = [`id: "${txn.id}"`, ...(txn.raw_transaction_id ? [`raw_id: "${txn.raw_transaction_id}"`] : [])];
+    const meta = txn.source_type
+      ? [`channel: "${CHANNEL_LABEL[txn.source_type] ?? txn.source_type}"`]
+      : [];
     const isIncome = txn.direction === '收入';
     const postings: { account: string; amount: number }[] = [];
     if (isIncome) {
@@ -163,7 +173,7 @@ export const TransactionReviewDrawer = ({ txnId, onClose, onChanged }: {
       paymentRows.forEach(r => postings.push({ account: r.account, amount: -Number(r.amount || 0) }));
     }
     return {
-      head: `${txn.date || ''} * "${txn.merchant ?? ''}"`,
+      head: `${txn.date || ''} * "${txn.merchant ?? ''}" "${txn.description ?? ''}"`,
       meta,
       postings,
     };
