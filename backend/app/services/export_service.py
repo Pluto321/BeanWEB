@@ -63,6 +63,13 @@ class ExportService:
             q = q.filter(ExportRecord.status == "EXPORTED")
         rows = q.all()
         parts = [ExportService._render(db, txn) for txn in rows]
+        if rows:
+            # 账户自动声明：确保整月活跃分录用到的账户已在 accounts.bean open
+            accounts = {s.account for txn in rows for s in txn.splits}
+            ledger_mgr.ensure_accounts_opened(
+                sorted(accounts),
+                min(txn.date for txn in rows),
+            )
         year_dir = os.path.join(ledger_mgr.generated_dir, year)
         os.makedirs(year_dir, exist_ok=True)
         fragment_path = os.path.join(year_dir, f"{month}.bean")
@@ -120,6 +127,13 @@ class ExportService:
                 pass
 
             ledger_mgr = LedgerManager(settings.LEDGER_DIR)
+            # 账户自动声明：确保分录用到的账户已在 accounts.bean open（消除「未知账户」gap）
+            ledger_mgr.ensure_accounts_opened(
+                [s.account for s in db.query(TransactionSplit).filter(
+                    TransactionSplit.transaction_id == txn.id).all()],
+                txn.date,
+                txn.currency or "CNY",
+            )
             fragment_path = ledger_mgr.write_fragment(txn.date, content)
             ExportService._ensure_include_chain(ledger_mgr, txn.date)
 
@@ -199,6 +213,14 @@ class ExportService:
                 pass
 
             ledger_mgr = LedgerManager(settings.LEDGER_DIR)
+
+            # 账户自动声明：确保分录用到的账户已在 accounts.bean open
+            ledger_mgr.ensure_accounts_opened(
+                [s.account for s in db.query(TransactionSplit).filter(
+                    TransactionSplit.transaction_id == txn.id).all()],
+                txn.date,
+                txn.currency or "CNY",
+            )
 
             # 3. 重生成交易当前所属月份的 fragment（旧记录已 SUPERSEDED 被排除，
             #    新记录通过 include_record_id 显式纳入，分录恰好出现一次）
