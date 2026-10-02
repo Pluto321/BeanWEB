@@ -16,6 +16,7 @@ const REASON_LABEL: Record<string, string> = {
   SOURCE_ID: '交易订单号与已有交易相同',
   RAW_HASH: '原始数据与已有交易相同',
   CANONICAL_FINGERPRINT: '交易特征与已有交易相似',
+  CROSS_SOURCE: '与其它来源账单疑似同一笔（银行 ↔ 支付宝/微信），请核对后保留其一',
 };
 
 type FilterKey = 'issues' | 'duplicate' | 'invalid';

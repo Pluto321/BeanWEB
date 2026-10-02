@@ -103,6 +103,11 @@ def _analyze_rows(db: Session, importer, raw_data_list: list[dict], db_file: DBF
         raw_hash = dedup.get_raw_hash(row)
         fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
         result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
+        # Layer 4 跨源匹配：银行 ↔ 支付宝/微信 各记一次的同一笔业务 → 疑似重复（人工裁决）
+        if result == "UNIQUE" and dedup.find_cross_source_match(
+            db, norm.model_dump(), importer.name.upper()
+        ) is not None:
+            result, reason = "POSSIBLE_DUPLICATE", "CROSS_SOURCE"
         if result == "UNIQUE":
             stats["new"] += 1
         elif result == "EXACT_DUPLICATE":
@@ -216,6 +221,11 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
         raw_hash = dedup.get_raw_hash(raw.raw_data_json)
         fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
         result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
+        # Layer 4 跨源匹配：银行 ↔ 支付宝/微信 各记一次的同一笔业务 → 疑似重复（人工裁决）
+        if result == "UNIQUE" and dedup.find_cross_source_match(
+            db, norm.model_dump(), batch.source_type
+        ) is not None:
+            result, reason = "POSSIBLE_DUPLICATE", "CROSS_SOURCE"
         if result == "EXACT_DUPLICATE":
             stats["existing"] += 1
             continue
@@ -247,6 +257,7 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
             raw_hash=raw_hash,
             canonical_fingerprint=fingerprint,
             status=review_required_status,
+            duplicate_reason=reason if review_required_status == "POSSIBLE_DUPLICATE" else None,
         )
         db.add(txn)
         db.flush()
@@ -387,7 +398,12 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
                 continue
             raw_hash = dedup.get_raw_hash(raw.raw_data_json)
             fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
-            result, _reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
+            result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
+            # Layer 4 跨源匹配：银行 ↔ 支付宝/微信 各记一次的同一笔业务 → 疑似重复（人工裁决）
+            if result == "UNIQUE" and dedup.find_cross_source_match(
+                db, norm.model_dump(), batch.source_type
+            ) is not None:
+                result, reason = "POSSIBLE_DUPLICATE", "CROSS_SOURCE"
             if result == "EXACT_DUPLICATE":
                 stats["existing"] += 1
                 continue
@@ -418,6 +434,7 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
                 raw_hash=raw_hash,
                 canonical_fingerprint=fingerprint,
                 status=status,
+                duplicate_reason=reason if status == "POSSIBLE_DUPLICATE" else None,
             )
             db.add(txn)
             db.flush()
