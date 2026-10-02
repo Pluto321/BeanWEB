@@ -300,6 +300,11 @@ def test_ccb_liabilities_full_path_to_beancount(db_session, tmp_path, monkeypatc
     assert sum(postings.values()) == 0, "分录必须借贷平衡"
     assert 'channel: "建设银行"' in content  # 导出分录带渠道 metadata
 
+    # 导出路径自动声明账户：accounts.bean 托管块包含分录用到的账户
+    accounts_bean = (tmp_path / f"ledgers-{txn.id}" / "accounts.bean").read_text(encoding="utf-8")
+    assert "open Liabilities:CCB:6207 CNY" in accounts_bean
+    assert "open Expenses:Uncategorized CNY" in accounts_bean
+
 
 def test_income_and_expense_category_export_regression(db_session, tmp_path, monkeypatch):
     """审计回归：收入分类腿 = Income:BeanWEB（导出为贷方负数），支出仍走规则引擎默认
