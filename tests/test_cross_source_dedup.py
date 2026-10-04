@@ -109,7 +109,7 @@ def test_ignored_txn_not_candidate(db_session):
 # ---------- 形态 2：方向互反的转账对（还款/提现） ----------
 
 def test_credit_card_repayment_pair(db_session):
-    """信用卡还款：银行侧支出「平安信用卡中心还款业务」+ 信用卡侧收入「银联入账」"""
+    """信用卡还款：银行侧支出「测试信用卡中心还款业务」+ 信用卡侧收入「银联入账」"""
     existing = _txn(db_session, "2025-12-10", "1426.60",
                     merchant="测试信用卡中心还款业务", source_type="BOC")
     norm = _norm("2025-12-10", "1426.60", direction="收入",

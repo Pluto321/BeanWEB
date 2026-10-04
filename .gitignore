@@ -13,6 +13,7 @@
 *.sqlite3
 storage/raw/
 backend/storage/
+backend/backups/
 backend/ledgers/
 backend/temp_*
 /temp_*
@@ -22,6 +23,9 @@ backend/temp_*
 __pycache__/
 .pytest_cache/
 .venv/
+
+# 个人交接/运维文档（含真实账户与数据状态，绝不进公开仓库；仓库提供脱敏 HANDOFF.template.md）
+HANDOFF.md
 
 # 前端构建产物
 frontend/node_modules/
