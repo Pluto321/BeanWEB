@@ -10,9 +10,27 @@ from app.db.session import get_db
 from app.models.models import Account, AuditLog, ExportRecord, Rule, Transaction
 from app.services.review import AuditService
 from app.services.export_service import ExportService
+from app.services import backup_service
 from app.core.config import settings
 
 router = APIRouter(prefix="/api")
+
+
+@router.post("/backups")
+def create_backup(db: Session = Depends(get_db)):
+    """创建数据库时间戳快照（SQLite 在线备份到 backups/ 目录）"""
+    try:
+        info = backup_service.create_backup(db)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    db.commit()
+    return {"status": "success", **info}
+
+
+@router.get("/backups")
+def list_backups():
+    """列出已有备份（新→旧）；只读，不做恢复（恢复属高危操作，暂不开放）"""
+    return {"items": backup_service.list_backups()}
 
 
 @router.get("/config/defaults")
@@ -121,6 +139,21 @@ def delete_rule(rule_id: int, db: Session = Depends(get_db)):
     AuditService.log_change(db, "rule", rule_id, "DELETE", None, None, "Delete rule")
     db.commit()
     return {"status": "success"}
+
+
+@router.post("/rules/apply")
+def apply_rules(data: dict, db: Session = Depends(get_db)):
+    """对存量交易重跑规则（预填支出分类腿，不改状态，裁决权在人）。
+    dry_run 默认 true：先看变更计划；显式传 false 才落库。"""
+    from app.services.rule_service import RuleService
+    dry_run = bool(data.get("dry_run", True))
+    transaction_ids = data.get("transaction_ids") or None
+    if transaction_ids and not isinstance(transaction_ids, list):
+        raise HTTPException(status_code=400, detail="transaction_ids 需为列表")
+    result = RuleService.rerun_rules(db, dry_run=dry_run, transaction_ids=transaction_ids)
+    if not dry_run:
+        db.commit()
+    return result
 
 
 @router.post("/exports/batch")

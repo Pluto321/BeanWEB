@@ -35,12 +35,13 @@ class RuleEngine:
         return str(pattern).lower() in str(value).lower()
 
     def apply(self, transaction: dict):
-        matched_rule = None
+        actions, _ = self.apply_with_rule(transaction)
+        return actions
+
+    def apply_with_rule(self, transaction: dict):
+        """返回 (actions, rule_name)。rule_name 为 None 表示无规则命中。
+        优先级：priority 降序取第一条全条件命中的规则（同 import 路径口径）。"""
         for rule in sorted(self.rules, key=lambda x: x.priority, reverse=True):
             if all(self._match(transaction.get(c.key), c.pattern) for c in rule.conditions):
-                matched_rule = rule
-                break
-
-        if matched_rule:
-            return {a.action_type: a.value for a in matched_rule.actions}
-        return {}
+                return {a.action_type: a.value for a in rule.actions}, rule.name
+        return {}, None

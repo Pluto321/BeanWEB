@@ -5,6 +5,23 @@ import { RuleDrawer, type RulePayload } from '../components/rules/RuleDrawer';
 
 type Rule = RulePayload & { id: number };
 
+type RerunResult = {
+  total: number;
+  updated: number;
+  unchanged_no_rule: number;
+  unchanged_same_account: number;
+  skipped_income: number;
+  skipped_no_expense_split: number;
+  changes: {
+    transaction_id: number;
+    merchant: string;
+    date: string;
+    old_account: string;
+    new_account: string;
+    rule: string;
+  }[];
+};
+
 const CONDITION_LABEL: Record<string, string> = {
   merchant: '商户', counterparty: '交易对方', description: '商品说明',
   payment_method: '收/付款方式', transaction_type: '交易分类', direction: '收/支',
@@ -27,6 +44,45 @@ const RulesPage = () => {
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [acting, setActing] = useState(false);
   const [actionError, setActionError] = useState('');
+  const [rerunPlan, setRerunPlan] = useState<RerunResult | null>(null);
+  const [rerunDone, setRerunDone] = useState<RerunResult | null>(null);
+  const [rerunBusy, setRerunBusy] = useState(false);
+
+  const planRerun = async () => {
+    setRerunBusy(true);
+    setActionError('');
+    setRerunDone(null);
+    try {
+      const plan = await apiFetch<RerunResult>('/api/rules/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: true }),
+      });
+      setRerunPlan(plan);
+    } catch (e: any) {
+      setActionError(e.message);
+    } finally {
+      setRerunBusy(false);
+    }
+  };
+
+  const applyRerun = async () => {
+    setRerunBusy(true);
+    setActionError('');
+    try {
+      const done = await apiFetch<RerunResult>('/api/rules/apply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dry_run: false }),
+      });
+      setRerunPlan(null);
+      setRerunDone(done);
+    } catch (e: any) {
+      setActionError(e.message);
+    } finally {
+      setRerunBusy(false);
+    }
+  };
 
   const load = useCallback(() => {
     setLoading(true);
@@ -90,8 +146,52 @@ const RulesPage = () => {
       <PageHeader
         title="规则"
         description="自动处理导入交易的分类与账户映射。"
-        actions={<Button onClick={() => setDrawer({ open: true, rule: null })}>+ 新建规则</Button>}
+        actions={(
+          <>
+            <Button variant="ghost" onClick={planRerun} disabled={rerunBusy}>↻ 重跑规则</Button>
+            <Button onClick={() => setDrawer({ open: true, rule: null })}>+ 新建规则</Button>
+          </>
+        )}
       />
+
+      {rerunPlan && (
+        <Card className="rule-card" title={undefined}>
+          <div className="rule-info">
+            <div className="rule-name">重跑预览（未确认交易 {rerunPlan.total} 笔）</div>
+            <div className="rule-cond">
+              将预填 {rerunPlan.updated} 笔支出分类腿；跳过收入 {rerunPlan.skipped_income} 笔；
+              无规则命中 {rerunPlan.unchanged_no_rule} 笔；已与规则一致 {rerunPlan.unchanged_same_account} 笔。
+              已确认交易不受影响，交易状态不变，最终裁决权仍在审核页。
+            </div>
+            {rerunPlan.changes.slice(0, 8).map(c => (
+              <div className="rule-act" key={c.transaction_id}>
+                {c.date} {c.merchant || '（无商户）'}：{c.old_account} → {c.new_account}（{c.rule}）
+              </div>
+            ))}
+            {rerunPlan.changes.length > 8 && (
+              <div className="rule-act">…共 {rerunPlan.changes.length} 项变更</div>
+            )}
+          </div>
+          <div className="rule-ops">
+            <Button onClick={applyRerun} disabled={rerunBusy || rerunPlan.updated === 0}>
+              应用 {rerunPlan.updated} 笔变更
+            </Button>
+            <Button variant="ghost" onClick={() => setRerunPlan(null)} disabled={rerunBusy}>取消</Button>
+          </div>
+        </Card>
+      )}
+
+      {rerunDone && (
+        <Card className="rule-card" title={undefined}>
+          <div className="rule-info">
+            <div className="rule-name">已更新 {rerunDone.updated} 笔分类腿</div>
+            <div className="rule-cond">交易状态不变，请到「交易」页审核确认。</div>
+          </div>
+          <div className="rule-ops">
+            <Button variant="ghost" onClick={() => setRerunDone(null)}>知道了</Button>
+          </div>
+        </Card>
+      )}
 
       <div className="filter-chips" role="group" aria-label="规则筛选">
         {RULES_FILTERS.map(f => (

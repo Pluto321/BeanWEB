@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str = DEFAULT_DATABASE_URL
     STORAGE_DIR: str = os.path.join(os.getcwd(), "storage", "raw")
     LEDGER_DIR: str = os.path.join(os.getcwd(), "ledgers")
+    BACKUP_DIR: str = os.path.join(os.getcwd(), "backups")
     DEFAULT_ASSETS_ACCOUNT: str = "Assets:BeanWEB"
     DEFAULT_EXPENSES_ACCOUNT: str = "Expenses:Uncategorized"
     DEFAULT_INCOME_ACCOUNT: str = "Income:BeanWEB"
