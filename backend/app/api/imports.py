@@ -116,7 +116,7 @@ def _analyze_rows(db: Session, importer, raw_data_list: list[dict], db_file: DBF
         raw_hash = dedup.get_raw_hash(row)
         fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
         result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
-        # Layer 4 跨源匹配：银行 ↔ 支付宝/微信 各记一次的同一笔业务 → 疑似重复（人工裁决）
+        # Layer 4 跨源匹配：同一笔业务被两张账单各记一次（银行↔钱包 / 银行↔银行转账对）→ 疑似重复（人工裁决）
         if result == "UNIQUE" and dedup.find_cross_source_match(
             db, norm.model_dump(), importer.name.upper()
         ) is not None:
@@ -249,7 +249,7 @@ def commit_import(batch_id: int, db: Session = Depends(get_db)):
         raw_hash = dedup.get_raw_hash(raw.raw_data_json)
         fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
         result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
-        # Layer 4 跨源匹配：银行 ↔ 支付宝/微信 各记一次的同一笔业务 → 疑似重复（人工裁决）
+        # Layer 4 跨源匹配：同一笔业务被两张账单各记一次（银行↔钱包 / 银行↔银行转账对）→ 疑似重复（人工裁决）
         if result == "UNIQUE" and dedup.find_cross_source_match(
             db, norm.model_dump(), batch.source_type
         ) is not None:
@@ -427,7 +427,7 @@ async def upload_import(file: UploadFile = File(...), db: Session = Depends(get_
             raw_hash = dedup.get_raw_hash(raw.raw_data_json)
             fingerprint = dedup.get_canonical_fingerprint(norm.model_dump())
             result, reason = dedup.check_against_db(db, norm.source_transaction_id, raw_hash, fingerprint)
-            # Layer 4 跨源匹配：银行 ↔ 支付宝/微信 各记一次的同一笔业务 → 疑似重复（人工裁决）
+            # Layer 4 跨源匹配：同一笔业务被两张账单各记一次（银行↔钱包 / 银行↔银行转账对）→ 疑似重复（人工裁决）
             if result == "UNIQUE" and dedup.find_cross_source_match(
                 db, norm.model_dump(), batch.source_type
             ) is not None:
