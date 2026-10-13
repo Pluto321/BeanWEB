@@ -19,16 +19,17 @@ class Settings(BaseSettings):
     DEFAULT_INCOME_ACCOUNT: str = "Income:BeanWEB"
     ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
-    # ===== OIDC 认证（设计见 docs/OIDC_AUTH_DESIGN.md）=====
-    # AUTH_ENABLED=false 时全部 auth 逻辑 no-op，行为与历史版本完全一致。
-    # true 时下述 OIDC_* / AUTH_ALLOWED_SUB / AUTH_SECRET_KEY 七项必填，
-    # 缺失由 auth_service.validate_auth_settings() 在启动时 fail-fast。
+    # ===== 认证（设计见 docs/OIDC_AUTH_DESIGN.md；AUTH_ENABLED=false 时全部 no-op）=====
+    # AUTH_MODE=password：本地密码登录（默认，无外部依赖；需 AUTH_PASSWORD_HASH）
+    # AUTH_MODE=oidc：接入 Burrow SSO（需已部署 Burrow，六项 OIDC 配置 fail-fast）
     AUTH_ENABLED: bool = False
-    OIDC_ISSUER: str = ""            # 如 https://sso.example.com（与 Burrow 侧登记一致）
+    AUTH_MODE: str = "password"
+    AUTH_PASSWORD_HASH: str = ""     # password 模式必填；scripts/hash_password.py 生成（scrypt）
+    OIDC_ISSUER: str = ""            # oidc 模式：如 https://sso.example.com（与 Burrow 侧登记一致）
     OIDC_CLIENT_ID: str = ""
     OIDC_CLIENT_SECRET: str = ""
     OIDC_REDIRECT_URI: str = ""      # 如 https://beanweb.example.com/api/auth/callback
-    AUTH_ALLOWED_SUB: str = ""       # 绑定唯一 Burrow 用户 sub，不匹配拒绝签发会话
+    AUTH_ALLOWED_SUB: str = ""       # oidc 模式必填：绑定唯一 Burrow 用户 sub
     AUTH_SECRET_KEY: str = ""        # 会话签名密钥（≥32 随机字节），只进 env 绝不入 git
     AUTH_SESSION_MAX_AGE: int = 43200  # 会话绝对超时（秒），默认 12h，不滑动
     AUTH_REQUEST_TTL: int = 600        # 预签发登录请求有效期（秒）

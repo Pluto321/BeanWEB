@@ -1,16 +1,18 @@
-"""OIDC 认证服务（设计见 docs/OIDC_AUTH_DESIGN.md）。
+"""认证服务（设计见 docs/OIDC_AUTH_DESIGN.md）。
 
-职责：require_auth 守卫、Authorization Code + PKCE S256 流程（discovery / 换码 /
-JWKS 验签）、会话 payload 管理、fail-fast 配置校验。无 DB、无服务端状态。
+两种模式（AUTH_MODE）：
+- password：本地密码登录（默认）——scrypt 哈希验证，无外部依赖；
+  OIDC 代码保留，AUTH_MODE=oidc 可随时切换（需已部署 Burrow）
+- oidc：Authorization Code + PKCE S256 接入 Burrow
 
-会话语义（starlette SessionMiddleware，itsdangerous 内容签名 cookie）：
-- 预签发 payload 键：auth_state / auth_nonce / auth_verifier / auth_next / auth_started_at
+职责：require_auth 守卫、登录验证、会话 payload 管理、fail-fast 配置校验。
+无 DB、无服务端状态。会话语义（SessionMiddleware，itsdangerous 内容签名 cookie）：
 - 登录后 payload 键：sub / username / auth_time / amr
-- callback 成败均清空预签发键——成功即轮转（防会话固定，设计 §3.2），失败整体作废（设计 §3.1）
-- 绝对超时由 SessionMiddleware 的 max_age 承担（签名时间戳超龄 = 会话清空）
+- 绝对超时由 SessionMiddleware max_age 承担（签名时间戳超龄 = 会话清空）
 """
 import base64
 import hashlib
+import hmac
 import secrets
 import time
 from typing import Optional, Tuple
@@ -37,19 +39,64 @@ class OidcError(RuntimeError):
 def validate_auth_settings() -> None:
     if not settings.AUTH_ENABLED:
         return
+    mode = settings.AUTH_MODE
+    if mode not in ("password", "oidc"):
+        raise AuthConfigError(f"AUTH_MODE 必须是 password 或 oidc（当前: {mode}）")
+    if len(settings.AUTH_SECRET_KEY.encode()) < 32:
+        raise AuthConfigError("AUTH_SECRET_KEY 至少 32 字节（openssl rand -base64 32）")
+    if mode == "password":
+        if not settings.AUTH_PASSWORD_HASH:
+            raise AuthConfigError(
+                "AUTH_MODE=password 需要 AUTH_PASSWORD_HASH（backend/scripts/hash_password.py 生成）")
+        if not _valid_hash_format(settings.AUTH_PASSWORD_HASH):
+            raise AuthConfigError("AUTH_PASSWORD_HASH 格式非法（用 scripts/hash_password.py 重新生成）")
+        return
     missing = [
         name
         for name in ("OIDC_ISSUER", "OIDC_CLIENT_ID", "OIDC_CLIENT_SECRET",
-                     "OIDC_REDIRECT_URI", "AUTH_ALLOWED_SUB", "AUTH_SECRET_KEY")
+                     "OIDC_REDIRECT_URI", "AUTH_ALLOWED_SUB")
         if not getattr(settings, name)
     ]
     if missing:
-        raise AuthConfigError(f"AUTH_ENABLED=true 但缺少必填配置: {', '.join(missing)}")
-    if len(settings.AUTH_SECRET_KEY.encode()) < 32:
-        raise AuthConfigError("AUTH_SECRET_KEY 至少 32 字节（openssl rand -base64 32）")
+        raise AuthConfigError(f"AUTH_MODE=oidc 但缺少必填配置: {', '.join(missing)}")
     for name in ("OIDC_ISSUER", "OIDC_REDIRECT_URI"):
         if not getattr(settings, name).startswith(("http://", "https://")):
             raise AuthConfigError(f"{name} 必须是完整 http(s) URL")
+
+
+# ===== password 模式：scrypt 哈希 =====
+# 格式 scrypt$<n>$<r>$<p>$<salt_hex>$<hash_hex>；stdlib 实现，零新依赖
+
+def hash_password(password: str) -> str:
+    salt = secrets.token_hex(16)
+    digest = hashlib.scrypt(
+        password.encode("utf-8"), salt=bytes.fromhex(salt), n=16384, r=8, p=1, dklen=32)
+    return f"scrypt$16384$8$1${salt}${digest.hex()}"
+
+
+def verify_password(password: str, stored: str) -> bool:
+    try:
+        scheme, n, r, p, salt_hex, hash_hex = stored.split("$")
+        if scheme != "scrypt":
+            return False
+        digest = hashlib.scrypt(
+            password.encode("utf-8"), salt=bytes.fromhex(salt_hex),
+            n=int(n), r=int(r), p=int(p), dklen=len(hash_hex) // 2)
+        return hmac.compare_digest(digest.hex(), hash_hex)
+    except (ValueError, TypeError):
+        return False
+
+
+def _valid_hash_format(stored: str) -> bool:
+    try:
+        scheme, n, r, p, salt_hex, hash_hex = stored.split("$")
+        return (
+            scheme == "scrypt"
+            and int(n) > 0 and int(r) > 0 and int(p) > 0
+            and len(salt_hex) > 0 and len(hash_hex) > 0
+        )
+    except (ValueError, TypeError):
+        return False
 
 
 def resolve_cookie_secure() -> bool:
@@ -78,13 +125,16 @@ def sanitize_next(raw: Optional[str]) -> str:
 def require_auth(request: Request) -> None:
     """业务路由守卫：AUTH_ENABLED=false 时 no-op（存量测试与直调路由不受影响）。
 
-    会话绝对超时已由 SessionMiddleware max_age 保证；此处额外比对 sub，
+    会话绝对超时已由 SessionMiddleware max_age 保证。oidc 模式额外比对 sub，
     使 AUTH_ALLOWED_SUB 收紧即刻吊销不匹配的存量会话（纵深防御）。
     """
     if not settings.AUTH_ENABLED:
         return
     sub = request.session.get("sub")
-    if not sub or not secrets.compare_digest(str(sub), settings.AUTH_ALLOWED_SUB):
+    if settings.AUTH_MODE == "oidc":
+        if not sub or not secrets.compare_digest(str(sub), settings.AUTH_ALLOWED_SUB):
+            raise HTTPException(status_code=401, detail="未登录或会话已过期")
+    elif not sub:
         raise HTTPException(status_code=401, detail="未登录或会话已过期")
 
 
@@ -208,6 +258,16 @@ def exchange_code_and_validate(meta: dict, code: str, verifier: str, nonce: str)
     except Exception as e:
         raise OidcError(f"ID Token 校验失败: {e}") from e
     return claims
+
+
+def write_password_session(request: Request) -> None:
+    """密码登录成功：写入会话（与 oidc 登录后的 payload 结构一致）。"""
+    session = request.session
+    session.clear()
+    session["sub"] = "local"
+    session["username"] = "本地账户"
+    session["auth_time"] = int(time.time())
+    session["amr"] = ["pwd"]
 
 
 def write_auth_session(request: Request, claims: dict) -> None:

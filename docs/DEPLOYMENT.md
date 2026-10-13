@@ -1,15 +1,15 @@
 # BeanWEB 生产部署（P2，形态 B）
 
-关联：docs/OIDC_AUTH_DESIGN.md §2（拓扑）/ §5（配置）/ §6（反代契约）。
-适用：单主机 + TLS 反代统一入口；Burrow 与 BeanWEB 同机（异机同理，改反代目标即可）。
+关联：docs/OIDC_AUTH_DESIGN.md §2（拓扑）/ §12（认证模式决策）。
+适用：单主机 + TLS 反代统一入口。**默认 `AUTH_MODE=password` 本地密码登录（零外部依赖）；
+`AUTH_MODE=oidc` 接入 Burrow SSO（需另行部署 Burrow，见 §2）。**
 
 ## 1. 前提
 
-- Burrow 已部署，`BURROW_ISSUER` 为 HTTPS 地址（Burrow 安装要求）
 - 本机已装：Python 3.13 venv（backend 依赖）、Node（构建前端）、Caddy 或 nginx
-- 域名解析就绪：`beanweb.example.com` 与 `sso.example.com` 均指向本机
+- 域名解析就绪；`oidc` 模式额外要求 Burrow 已部署（HTTPS issuer）
 
-## 2. Burrow 侧注册（联调清单）
+## 2. Burrow 注册清单（仅 `AUTH_MODE=oidc` 需要）
 
 1. 创建应用：类型 **web**（confidential client）
    - 回调：`https://beanweb.example.com/api/auth/callback`（精确匹配）
@@ -17,8 +17,8 @@
    - **不开 `allowWithoutPkce`**（Burrow 默认强制 PKCE S256）
    - 记下生成的 clientId / clientSecret（secret 仅显示一次）
 2. 授权：把 `app:<应用ID>:login` 权限授予本人用户/用户组
-3. （可选增强）全局开 `BURROW_MFA_ENABLED=true`，BeanWEB 间接受 TOTP 保护
-4. 查询本人 `sub`（Burrow 用户详情/API），填入 `AUTH_ALLOWED_SUB`
+3. （可选增强）全局开 `BURROW_MFA_ENABLED=true`
+4. 查询本人 `sub` 填入 `AUTH_ALLOWED_SUB`
 
 ## 3. 构建与配置
 
@@ -36,15 +36,13 @@ python -m venv .venv
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
-| `AUTH_ENABLED` | ✓ | `true`；缺失任一必填项启动即失败（fail-fast） |
-| `OIDC_ISSUER` | ✓ | 如 `https://sso.example.com`，与 Burrow 侧登记一致 |
-| `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` | ✓ | Burrow 创建应用时生成 |
-| `OIDC_REDIRECT_URI` | ✓ | `https://beanweb.example.com/api/auth/callback` |
-| `AUTH_ALLOWED_SUB` | ✓ | 绑定唯一授权用户 sub，不匹配拒绝签发会话 |
+| `AUTH_ENABLED` | ✓ | `true`；缺必填项启动即失败（fail-fast） |
+| `AUTH_MODE` | 可选 | `password`（默认，本地密码登录）/ `oidc`（Burrow SSO） |
+| `AUTH_PASSWORD_HASH` | password 模式 | scrypt 哈希；生成：`cd backend && ../.venv/bin/python scripts/hash_password.py`（明文密码不落任何文件） |
 | `AUTH_SECRET_KEY` | ✓ | 会话签名密钥，`openssl rand -base64 32`；**只进 env，绝不入 git** |
+| `OIDC_ISSUER` / `OIDC_CLIENT_ID` / `OIDC_CLIENT_SECRET` / `OIDC_REDIRECT_URI` / `AUTH_ALLOWED_SUB` | oidc 模式 | 见 §2 |
 | `AUTH_SESSION_MAX_AGE` | 可选 | 默认 43200（12h 绝对超时，不滑动） |
-| `AUTH_REQUEST_TTL` | 可选 | 默认 600（登录请求有效期秒） |
-| `COOKIE_SECURE` | 可选 | 默认 `auto`：按 OIDC_REDIRECT_URI 协议自动推导，https 部署无需设置 |
+| `COOKIE_SECURE` | 可选 | 默认 `auto`：按 `OIDC_REDIRECT_URI` 协议推导 |
 
 `FRONTEND_DIST_DIR` 默认 `../frontend/dist`（相对 backend/），目录存在即自动同端口 serve。
 
@@ -112,23 +110,22 @@ server {
 }
 ```
 
-## 6. 上线冒烟清单
+## 6. 上线冒烟清单（password 模式）
 
 - [ ] `AUTH_ENABLED=false` 先启动：`/health` ok、浏览器打开 `/` 出现 UI（无登录门）
-- [ ] 按 §2 完成 Burrow 注册，按 §3 配全 env 重启：fail-fast 通过
-- [ ] 浏览器访问 `https://beanweb.example.com/` → 登录门 →「前往登录」→ Burrow 完成登录 → 回跳应用
+- [ ] 生成密码哈希（§3）+ 配全 `.env`（`AUTH_ENABLED=true` + `AUTH_MODE=password` + 两项）→ 重跑 `install.sh`：fail-fast 通过、验收 `mode=password`
+- [ ] 浏览器访问 `https://beanweb.example.com/` → 登录门为密码表单 → 输错密码提示「密码错误」→ 输对进入应用
 - [ ] 刷新页面会话保持；DevTools 查看 `Set-Cookie`：`HttpOnly` + `SameSite=Lax` + `Secure` + `Max-Age=43200`
-- [ ] 「退出登录」→ 跳 Burrow `end_session` → 回应用根路径 → 再访问要求登录
-- [ ] （负向）Burrow 侧临时把 `app:<ID>:login` 授给一个测试用户 → 该用户登录被拒（`AUTH_ALLOWED_SUB` 兜底）→ 移除权限
+- [ ] 「退出登录」→ 回到登录门 → 再访问要求重新登录
+- [ ] （oidc 模式时另按 §2 注册 Burrow，登录门显示 SSO 入口；冒烟项同上）
 
 ## 7. 运维注意
 
-- **`AUTH_SECRET_KEY` 泄露 = 全部会话可伪造**；轮换密钥即全员强制重新登录
-- **吊销手段**：调小 `AUTH_SESSION_MAX_AGE` 即刻清空全部存量会话（签名时间戳超龄作废）；
-  改 `AUTH_ALLOWED_SUB` 即刻拒绝其他用户
-- **已知边界（设计已接受，威胁模型 §2）**：会话无服务端状态——登出仅指浏览器删除 cookie，
-  cookie 值被复制重放在 12h 内仍有效；Burrow 侧改密/MFA 重置不影响已签发的 BeanWEB 会话，
-  需等超时或用上述吊销手段强制下线
+- **`AUTH_SECRET_KEY` 泄露 = 全部会话可伪造**；轮换密钥即强制重新登录
+- **改密码**：重跑 `scripts/hash_password.py` 生成新哈希替换 `.env` 中的 `AUTH_PASSWORD_HASH` → 重跑 `install.sh`
+- **吊销手段**：调小 `AUTH_SESSION_MAX_AGE` 即刻清空全部存量会话（签名时间戳超龄作废）
+- **已知边界（设计已接受）**：会话无服务端状态——登出仅指浏览器删除 cookie，
+  cookie 值被复制重放在 12h 内仍有效；需强制下线时用上述吊销手段
 - 登录审计写入本地 `audit_logs`（`entity_type=auth`、`action=LOGIN`），属运行时数据
 - 备份流程不变：`POST /api/backups`（SQLite 在线快照到 `backend/backups/`）
 - dev 工作流（vite 5173 → `/api` 代理 8000）与现状完全一致，dist serve 不影响

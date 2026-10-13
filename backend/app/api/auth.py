@@ -1,15 +1,17 @@
-"""OIDC 认证端点（契约见 docs/OIDC_AUTH_DESIGN.md §4）。
+"""认证端点（契约见 docs/OIDC_AUTH_DESIGN.md §4）。
 
 - AUTH_ENABLED=false：login/callback 404，logout 幂等 no-op，me 返回 mode=disabled
-- callback 任何失败：401 带 reason + 清空会话（预签发单次消费，设计 §3.1）
+- password 模式：POST /api/auth/login 验 scrypt 哈希签会话；错误 401
+- oidc 模式：GET /api/auth/login 发起 OIDC；callback 任何失败 401 带 reason + 清空会话
 - logout：本地会话是唯一事实源（无条件清除、不挂 require_auth）；
-  end_session_url 构不出来时返回 null = 仅本地登出（设计 §3 登出段）
+  仅 oidc 模式尝试构建 end_session_url，构不出来返回 null = 仅本地登出
 """
 import secrets
 import time
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import RedirectResponse
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
@@ -22,17 +24,47 @@ from app.services.auth_service import (
     discover_oidc_metadata,
     exchange_code_and_validate,
     sanitize_next,
+    verify_password,
     write_auth_session,
+    write_password_session,
 )
 from app.services.review import AuditService
 
 router = APIRouter(prefix="/api/auth")
 
 
+class PasswordLoginBody(BaseModel):
+    password: str
+
+
+@router.post("/login")
+def login_with_password(
+    request: Request,
+    body: PasswordLoginBody,
+    db: Session = Depends(get_db),
+):
+    """password 模式：验密码哈希 → 签发会话（登录即轮转，防会话固定）。"""
+    if not settings.AUTH_ENABLED or settings.AUTH_MODE != "password":
+        raise HTTPException(status_code=404, detail="认证未启用或非密码模式")
+    if not body or not verify_password(body.password, settings.AUTH_PASSWORD_HASH):
+        time.sleep(0.3)  # 轻微延迟 + scrypt 本身的算力成本，抑制在线爆破
+        raise HTTPException(status_code=401, detail="密码错误")
+    write_password_session(request)
+    AuditService.log_change(
+        db, "auth", 0, "LOGIN", None,
+        {"mode": "password", "username": "本地账户"},
+        note="密码登录",
+    )
+    db.commit()  # auth 全在 API 层，事务由 caller 控制（核心原则 6）
+    return {"authenticated": True, "username": "本地账户"}
+
+
 @router.get("/login")
 def login(request: Request, next: str = "/"):
     if not settings.AUTH_ENABLED:
         raise HTTPException(status_code=404, detail="认证未启用")
+    if settings.AUTH_MODE != "oidc":
+        raise HTTPException(status_code=404, detail="非 oidc 模式，请使用 POST 登录")
     state, nonce, verifier = begin_login_session(request, next)
     try:
         meta = discover_oidc_metadata()
@@ -49,8 +81,8 @@ def callback(
     state: str = "",
     error: str = "",
 ):
-    if not settings.AUTH_ENABLED:
-        raise HTTPException(status_code=404, detail="认证未启用")
+    if not settings.AUTH_ENABLED or settings.AUTH_MODE != "oidc":
+        raise HTTPException(status_code=404, detail="认证未启用或非 oidc 模式")
     session = request.session
 
     def fail(reason: str):
@@ -94,13 +126,18 @@ def me(request: Request):
     if not settings.AUTH_ENABLED:
         return {"authenticated": False, "mode": "disabled",
                 "username": None, "auth_time": None, "amr": None}
+    mode = settings.AUTH_MODE
     sub = request.session.get("sub")
-    if sub and secrets.compare_digest(str(sub), settings.AUTH_ALLOWED_SUB):
-        return {"authenticated": True, "mode": "oidc",
+    if mode == "oidc":
+        ok = bool(sub) and secrets.compare_digest(str(sub), settings.AUTH_ALLOWED_SUB)
+    else:
+        ok = bool(sub)
+    if ok:
+        return {"authenticated": True, "mode": mode,
                 "username": request.session.get("username"),
                 "auth_time": request.session.get("auth_time"),
                 "amr": request.session.get("amr")}
-    return {"authenticated": False, "mode": "oidc",
+    return {"authenticated": False, "mode": mode,
             "username": None, "auth_time": None, "amr": None}
 
 
@@ -111,6 +148,8 @@ def logout(request: Request):
         return {"end_session_url": None}
     # 本地会话是唯一事实源：无条件清除（幂等），本端点不挂 require_auth——登出永远可用
     request.session.clear()
+    if settings.AUTH_MODE != "oidc":
+        return {"end_session_url": None}  # password 模式无 SSO 会话可撤销
     try:
         meta = discover_oidc_metadata()
     except OidcError:

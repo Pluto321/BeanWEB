@@ -1,9 +1,10 @@
 # BeanWEB OIDC SSO 接入设计（Burrow 作为身份提供方）
 
-状态：**P1 + P2 代码侧已完成（2026-10-11）：后端 + 前端 + dist serve/SPA fallback + 部署文档
-（docs/DEPLOYMENT.md）；off 模式零扰动（87 存量测试全绿）；§7 mock 测试按用户决定延后；
-剩余：Burrow 侧注册 + 真实联调冒烟（见 DEPLOYMENT.md §2/§6）**
-日期：2026-10-10（定稿）/ 2026-10-11（补齐 + P1/P2 实现）
+状态：**已上线本地密码模式（2026-10-13 决策变更，见 §12）**：Burrow 实际未部署，原
+OIDC 方案的前提不成立；新增 `AUTH_MODE=password`（scrypt 哈希本地登录，默认模式），
+**OIDC 实现完整保留**，将来部署 Burrow 后设 `AUTH_MODE=oidc` 随时切换。
+off 模式零扰动（87 存量测试全绿）；§7 mock 测试延后。
+日期：2026-10-10（定稿）/ 2026-10-11（补齐 + P1/P2 实现）/ 2026-10-13（§12）
 关联：HANDOFF.md 核心原则 7/8；gap #4（requirements 分层）
 
 ## 1. 背景与目标
@@ -247,3 +248,20 @@ COOKIE_SECURE=auto             # auto|true|false；auto 按 OIDC_REDIRECT_URI �
    不携带 `id_token_hint`（详见 §3 登出段）
 9. **auth 测试走真实签名链路**：不桩 SessionMiddleware，测试 key 经 env 注入；覆盖
    签名伪造、会话过期、固定轮转、跨站 state 绑定、开放重定向、登出降级（详见 §7）
+
+## 12. 决策变更：本地密码模式（2026-10-13 用户拍板）
+
+**背景**：§1 的前提「用户已自建 Burrow 管理 Grafana/Nightingale」经核实**不成立**
+（Burrow 从未部署）。OIDC 是"客户端 + 身份提供方"的双方协议，提供方不存在则方案无法落地。
+
+**新决策**：
+1. 新增 `AUTH_MODE=password`（**默认**）：本地密码登录——scrypt 哈希验证（stdlib，零新依赖），
+   `AUTH_PASSWORD_HASH` 由 `backend/scripts/hash_password.py` 生成，密码明文不落任何文件；
+   错误密码 401 + 0.3s 延迟 + scrypt 算力成本抑制在线爆破
+2. **OIDC 全部代码保留**，`AUTH_MODE=oidc` 可随时切换（届时需部署 Burrow + §2/§6 流程）；
+   `AUTH_ALLOWED_SUB` 降为仅 oidc 模式必填
+3. 原「不存密码」决策（§1 非目标）在"Burrow 存在"前提下成立，前提失效后经重新拍板推翻：
+   单用户本地应用存一个 scrypt 哈希是可接受的最小方案
+4. 前端登录门按 mode 分流：password → 密码表单（登录后原地恢复当前页）；oidc → SSO 入口。
+   401 拦截：oidc 整页跳发起端点；password 刷新页面回登录门
+5. 会话/守卫/登出/绝对超时/Secure Cookie 等机制与 P1 完全一致（§3.2 轮转、12h 绝对超时不变）
