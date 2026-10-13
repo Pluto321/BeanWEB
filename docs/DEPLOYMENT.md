@@ -31,7 +31,8 @@ python -m venv .venv
 .venv\Scripts\pip install -r requirements.txt   # Linux: .venv/bin/pip
 ```
 
-后端环境变量（CWD=backend/）：
+后端环境变量统一放**仓库根 `.env`**（systemd `EnvironmentFile` 加载；模板见
+`deploy/env.example`，`.env` 已 gitignore、权限 600——`deploy/install.sh` 自动处理）：
 
 | 变量 | 必填 | 说明 |
 |---|---|---|
@@ -47,18 +48,36 @@ python -m venv .venv
 
 `FRONTEND_DIST_DIR` 默认 `../frontend/dist`（相对 backend/），目录存在即自动同端口 serve。
 
-## 4. 启动（uvicorn 契约）
+## 4. 启动（systemd --user 单元，一键）
 
 ```bash
-cd backend
-uvicorn main:app --host 127.0.0.1 --port 8000 \
+bash deploy/install.sh
+```
+
+脚本幂等，每次执行：从模板创建 `.env`（若缺）→ 生成
+`~/.config/systemd/user/beanweb.service` → `daemon-reload` + `restart` →
+尝试开启 linger → 探活验收并报告 auth 模式。**改完 `.env` 后重跑脚本即生效。**
+
+生成的单元（等价手工形态，供参考）：
+
+```ini
+[Service]
+WorkingDirectory=<仓库>/backend
+EnvironmentFile=<仓库>/.env
+ExecStart=<仓库>/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000 \
   --proxy-headers --forwarded-allow-ips=127.0.0.1
+Restart=on-failure
 ```
 
 - `--proxy-headers` + `--forwarded-allow-ips`：仅信任本机反代的 `X-Forwarded-Proto`，
   防外部伪造（设计 §6 契约）
 - 绑定 `127.0.0.1`：应用端口不对外暴露，TLS 入口统一走反代
-- 进程管理：systemd / nssm / PM2 任选，注意 env 注入方式
+- `DATABASE_URL` 无需设置：代码默认已解析为 `<仓库>/backend/beanweb.db` 绝对路径
+- **linger 必须开启**（user 级服务默认随 SSH 登出被回收）：
+  `sudo loginctl enable-linger <user>`，脚本会尝试自动处理
+- 启用登录：编辑 `.env`（`AUTH_ENABLED=true` + 六项真实值）→ 重跑 `install.sh`
+  → 验收输出 `mode=oidc` 即生效；缺项时 fail-fast，`journalctl --user -u beanweb -n 20`
+  会点名缺失变量
 
 ## 5. 反代样例
 
