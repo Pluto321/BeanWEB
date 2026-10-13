@@ -1,11 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
+import { AuthInfo } from '../api/client';
 
 /** App Shell：固定侧栏 + 独立滚动的工作区；移动端侧栏变 Drawer。
  * UI-3 兼容：当路由 query 含 selected（交易审核 Drawer 打开）时，
  * workspace 加 drawer-open class，使列表让位（纯展示层，不改业务）。 */
-export const AppShell = ({ children }: { children: React.ReactNode }) => {
+export const AppShell = ({ children, auth }: { children: React.ReactNode; auth: AuthInfo }) => {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const location = useLocation();
 
@@ -25,7 +26,7 @@ export const AppShell = ({ children }: { children: React.ReactNode }) => {
         {drawerOpen ? '✕' : '☰'}
       </button>
       <div className="sidebar-mask" onClick={() => setDrawerOpen(false)} aria-hidden="true" />
-      <Sidebar onNavigate={() => setDrawerOpen(false)} />
+      <Sidebar onNavigate={() => setDrawerOpen(false)} auth={auth} />
       <main className={`workspace ${reviewDrawerOpen ? 'drawer-open' : ''}`}>
         <div className="content">{children}</div>
       </main>

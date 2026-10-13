@@ -11,3 +11,7 @@ beancount
 pdfplumber
 openpyxl
 reportlab  # 仅用于生成 tests/fixtures 下的银行 PDF 测试账单
+# OIDC 认证（docs/OIDC_AUTH_DESIGN.md）
+authlib
+itsdangerous  # starlette SessionMiddleware 会话签名
+httpx2  # httpx 后继版：后端 OIDC HTTP 客户端 + starlette TestClient 依赖

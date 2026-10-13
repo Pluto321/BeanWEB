@@ -19,4 +19,23 @@ class Settings(BaseSettings):
     DEFAULT_INCOME_ACCOUNT: str = "Income:BeanWEB"
     ALLOWED_ORIGINS: List[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
 
+    # ===== OIDC 认证（设计见 docs/OIDC_AUTH_DESIGN.md）=====
+    # AUTH_ENABLED=false 时全部 auth 逻辑 no-op，行为与历史版本完全一致。
+    # true 时下述 OIDC_* / AUTH_ALLOWED_SUB / AUTH_SECRET_KEY 七项必填，
+    # 缺失由 auth_service.validate_auth_settings() 在启动时 fail-fast。
+    AUTH_ENABLED: bool = False
+    OIDC_ISSUER: str = ""            # 如 https://sso.example.com（与 Burrow 侧登记一致）
+    OIDC_CLIENT_ID: str = ""
+    OIDC_CLIENT_SECRET: str = ""
+    OIDC_REDIRECT_URI: str = ""      # 如 https://beanweb.example.com/api/auth/callback
+    AUTH_ALLOWED_SUB: str = ""       # 绑定唯一 Burrow 用户 sub，不匹配拒绝签发会话
+    AUTH_SECRET_KEY: str = ""        # 会话签名密钥（≥32 随机字节），只进 env 绝不入 git
+    AUTH_SESSION_MAX_AGE: int = 43200  # 会话绝对超时（秒），默认 12h，不滑动
+    AUTH_REQUEST_TTL: int = 600        # 预签发登录请求有效期（秒）
+    COOKIE_SECURE: str = "auto"      # auto|true|false；auto 按 OIDC_REDIRECT_URI 协议推导
+
+    # 生产（形态 B）：uvicorn 同端口 serve 前端构建产物；目录不存在则自动跳过，
+    # dev 流程（vite 5173 → /api 代理）不受影响
+    FRONTEND_DIST_DIR: str = os.path.join(os.path.dirname(BASE_DIR), "frontend", "dist")
+
 settings = Settings()

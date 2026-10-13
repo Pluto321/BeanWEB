@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { apiFetch } from '../api/client';
+import { apiFetch, AuthInfo } from '../api/client';
 
 type NavItem = {
   label: string;
@@ -45,9 +45,10 @@ const NAV: NavGroup[] = [
   },
 ];
 
-export const Sidebar = ({ onNavigate }: { onNavigate?: () => void }) => {
+export const Sidebar = ({ onNavigate, auth }: { onNavigate?: () => void; auth?: AuthInfo }) => {
   const location = useLocation();
   const [counts, setCounts] = useState<Record<string, number>>({});
+  const [loggingOut, setLoggingOut] = useState(false);
 
   useEffect(() => {
     // 轻量计数端点计算侧栏 Badge（避免每次导航拉全量交易列表）
@@ -57,6 +58,21 @@ export const Sidebar = ({ onNavigate }: { onNavigate?: () => void }) => {
       })
       .catch(() => { /* Badge 非关键信息，失败静默 */ });
   }, [location.pathname, location.search]);
+
+  const handleLogout = async () => {
+    if (loggingOut) return;
+    setLoggingOut(true);
+    try {
+      const { end_session_url } = await apiFetch<{ end_session_url: string | null }>(
+        '/api/auth/logout',
+        { method: 'POST' },
+      );
+      // 全局登出：有 end_session 整页跳 SSO 撤销会话；无则回根路径重新过登录门
+      window.location.href = end_session_url ?? '/';
+    } catch {
+      setLoggingOut(false); // 登出请求失败留在原地，允许重试
+    }
+  };
 
   const isActive = (item: NavItem): boolean => {
     const [pathname, search] = item.to.split('?');
@@ -95,6 +111,19 @@ export const Sidebar = ({ onNavigate }: { onNavigate?: () => void }) => {
           </div>
         ))}
       </div>
+      {auth?.mode === 'oidc' && (
+        <div className="sidebar-auth">
+          <span className="sidebar-auth-user">{auth.username}</span>
+          <button
+            type="button"
+            className="sidebar-auth-logout"
+            onClick={handleLogout}
+            disabled={loggingOut}
+          >
+            退出登录
+          </button>
+        </div>
+      )}
     </nav>
   );
 };
