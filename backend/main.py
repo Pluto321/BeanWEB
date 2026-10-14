@@ -54,20 +54,25 @@ def health_check():
 
 if os.path.isdir(settings.FRONTEND_DIST_DIR):
     # P2（形态 B）：同端口 serve 前端 dist，TLS/入口统一交给反代。
-    # 路由先于 Mount 注册，/api 与 /health 优先匹配；目录缺失（未 build）则整体跳过
-    _INDEX_HTML = os.path.join(settings.FRONTEND_DIST_DIR, "index.html")
+    # 静态资源挂 /assets 子路径而非 Mount("/")——后者匹配一切路径，会在
+    # Starlette redirect_slashes 之前吃掉依赖 307 的无斜杠 API 变体
+    # （/api/transactions → 404，回归引入于 3e56b72）；页面级路由由 404 异常处理器兜底
+    _DIST_ROOT = os.path.normpath(settings.FRONTEND_DIST_DIR)
+    _INDEX_HTML = os.path.join(_DIST_ROOT, "index.html")
+    _ASSETS_DIR = os.path.join(_DIST_ROOT, "assets")
 
-    app.mount("/", StaticFiles(directory=settings.FRONTEND_DIST_DIR, html=True), name="frontend")
+    if os.path.isdir(_ASSETS_DIR):
+        app.mount("/assets", StaticFiles(directory=_ASSETS_DIR), name="frontend-assets")
 
     @app.exception_handler(StarletteHTTPException)
     async def _spa_fallback(request: Request, exc: StarletteHTTPException):
-        # SPA fallback：非 /api 的 404（如 /transactions 前端路由）回落 index.html；
+        # 非 /api 的 404：先找 dist 内真实文件（favicon 等），否则回 index.html（SPA 前端路由）；
         # /api 路径与非 404 状态保持 FastAPI 默认 JSON 语义
-        if (
-            exc.status_code == 404
-            and not request.url.path.startswith("/api")
-            and os.path.isfile(_INDEX_HTML)
-        ):
-            return FileResponse(_INDEX_HTML)
+        if exc.status_code == 404 and not request.url.path.startswith("/api"):
+            candidate = os.path.normpath(os.path.join(_DIST_ROOT, request.url.path.lstrip("/")))
+            if candidate.startswith(_DIST_ROOT + os.sep) and os.path.isfile(candidate):
+                return FileResponse(candidate)
+            if os.path.isfile(_INDEX_HTML):
+                return FileResponse(_INDEX_HTML)
         headers = getattr(exc, "headers", None)
         return JSONResponse({"detail": exc.detail}, status_code=exc.status_code, headers=headers)
